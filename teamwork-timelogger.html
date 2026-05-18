@@ -131,7 +131,7 @@
         /* ===== LAYOUT ===== */
         .app-body {
             display: grid;
-            grid-template-columns: 340px 1fr;
+            grid-template-columns: minmax(360px, 30vw) 1fr;
             gap: 0;
             height: calc(100vh - 56px);
             overflow: hidden;
@@ -279,52 +279,49 @@
             border-radius: 4px; padding: 1px 4px; font-size: 10px; font-family: inherit;
         }
 
-        /* ===== QUICK RELOG ===== */
-        .relog-card {
+        /* ===== QUICK TASKS ===== */
+        .quick-tasks-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 14px 16px;
         }
 
-        .relog-item {
+        .quick-tasks-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .qt-item {
             display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 7px 8px;
-            border-radius: 7px;
+            flex-direction: column;
+            gap: 2px;
+            padding: 9px 11px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface-2);
             cursor: pointer;
-            transition: background 0.15s;
+            transition: background 0.15s, border-color 0.15s;
+            min-width: 0;
         }
 
-        .relog-item:hover { background: var(--accent-light); }
+        .qt-item:hover { background: var(--accent-light); border-color: var(--accent); }
 
-        .relog-info { flex: 1; min-width: 0; }
-
-        .relog-project {
-            font-size: 12px; font-weight: 600;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        .qt-proj {
+            font-size: 11px; font-weight: 700; color: var(--text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
 
-        .relog-desc {
-            font-size: 11px; color: var(--text-dim);
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        .qt-list {
+            font-size: 10px; color: var(--text-dim);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
 
-        .relog-time {
-            font-size: 12px; font-weight: 700; color: var(--accent);
-            white-space: nowrap; flex-shrink: 0;
+        .qt-time {
+            font-size: 10px; font-weight: 700; color: var(--accent);
+            margin-top: 4px;
         }
-
-        .relog-badge {
-            font-size: 9px; font-weight: 800; text-transform: uppercase;
-            color: var(--accent); letter-spacing: 0.4px;
-            opacity: 0; transition: opacity 0.15s; flex-shrink: 0;
-            background: var(--accent-light);
-            padding: 2px 6px; border-radius: 4px;
-        }
-
-        .relog-item:hover .relog-badge { opacity: 1; }
 
         /* ===== WEEK VIEW ===== */
         .week-summary-bar {
@@ -859,6 +856,12 @@
         <!-- LEFT: Log form + Quick relog -->
         <div class="left-panel">
 
+            <!-- Quick Tasks (Backend Engineering across sub-projects) -->
+            <div class="quick-tasks-card" id="quick-tasks-card" style="display:none;">
+                <div class="section-label" id="quick-tasks-label">Quick Tasks</div>
+                <div class="quick-tasks-grid" id="quick-tasks-list"></div>
+            </div>
+
             <!-- Target day indicator -->
             <div class="target-day-pill" id="target-day-pill">
                 📅 <span id="target-day-label">Today</span>
@@ -921,17 +924,6 @@
                 <div class="kbd-hint" style="margin-top:7px;"><kbd>⌘</kbd>+<kbd>↵</kbd> to submit</div>
             </div>
 
-            <!-- Quick Relog -->
-            <div class="relog-card">
-                <div class="section-label">Quick Relog</div>
-                <div id="relog-list"><div class="empty-state" style="padding:16px;">No recent entries yet</div></div>
-            </div>
-
-            <!-- Quick Tasks (e.g. Backend Engineering across all sub-projects) -->
-            <div class="relog-card" id="quick-tasks-card" style="display:none;">
-                <div class="section-label" id="quick-tasks-label">Quick Tasks</div>
-                <div id="quick-tasks-list"></div>
-            </div>
         </div>
 
         <!-- RIGHT: Full week view -->
@@ -1103,7 +1095,6 @@
     let targetDate   = new Date();          // the day we're logging INTO
     let projects     = [];
     let projectTasks = {};
-    let recentEntries = [];
     let quickTasks   = [];                  // Backend Engineering tasks across projects
     let weekEntries  = {};                  // key: 'YYYY-MM-DD' → array of entries
 
@@ -1199,7 +1190,6 @@
         updateTargetDayLabel();
         loadProjects();
         loadWeekData();
-        loadRecentEntries();
         loadQuickTasks();
     }
 
@@ -1359,7 +1349,6 @@
 
             renderWeekDays();
             updateWeekTotal();
-            loadRecentEntries();
         } catch (e) {
             console.error('Week load failed', e);
             toast('Failed to load week data', 'error');
@@ -1669,7 +1658,6 @@
             closeInlineAdd(dayKey);
             await reloadDay(dayKey);
             updateWeekTotal();
-            loadRecentEntries();
         } catch (e) {
             toast('Failed: ' + e.message, 'error');
         }
@@ -1716,7 +1704,6 @@
             const key = toDayKey(targetDate);
             await reloadDay(key);
             updateWeekTotal();
-            loadRecentEntries();
         } catch (e) {
             toast('Failed: ' + e.message, 'error');
         } finally {
@@ -1795,64 +1782,6 @@
         }
     }
 
-    // ─── Quick Relog ──────────────────────────────────────────────────────────
-    async function loadRecentEntries() {
-        const uf = config.userId ? `&userId=${config.userId}` : '';
-        try {
-            const data = await apiGet(`/time_entries.json?pageSize=50&sortorder=DESC${uf}`);
-            const all = data['time-entries'] || [];
-
-            const seen = new Set();
-            recentEntries = [];
-            for (const e of all) {
-                const k = `${e['project-id']}|${e['todo-item-id']||''}|${e.description||''}`;
-                if (!seen.has(k) && recentEntries.length < 8) {
-                    seen.add(k); recentEntries.push(e);
-                }
-            }
-            renderRecentEntries();
-        } catch (e) { console.error(e); }
-    }
-
-    function renderRecentEntries() {
-        const list = document.getElementById('relog-list');
-        if (!recentEntries.length) {
-            list.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-dimmer);">No recent entries</div>';
-            return;
-        }
-
-        list.innerHTML = recentEntries.map((e, i) => {
-            const h = parseInt(e.hours) || 0;
-            const m = parseInt(e.minutes) || 0;
-            return `<div class="relog-item" onclick="relogEntry(${i})">
-                <div class="relog-info">
-                    <div class="relog-project">${esc(e['project-name'] || 'Unknown')}</div>
-                    <div class="relog-desc">${esc(e.description || 'No description')}</div>
-                </div>
-                <div class="relog-time">${h}:${String(m).padStart(2,'0')}</div>
-                <div class="relog-badge">Fill</div>
-            </div>`;
-        }).join('');
-    }
-
-    function relogEntry(index) {
-        const e = recentEntries[index];
-        if (!e) return;
-
-        const sel = document.getElementById('project-select');
-        sel.value = e['project-id'] || '';
-        loadTasksForProject(e['project-id']).then(() => {
-            const taskSel = document.getElementById('task-select');
-            if (e['todo-item-id']) taskSel.value = e['todo-item-id'];
-        });
-
-        document.getElementById('log-hours').value = parseInt(e.hours) || 0;
-        document.getElementById('log-minutes').value = parseInt(e.minutes) || 0;
-        document.getElementById('log-description').value = e.description || '';
-        document.querySelectorAll('.quick-time').forEach(b => b.classList.remove('active'));
-
-        toast('Form filled — edit if needed, then submit', 'success');
-    }
 
     // ─── Quick Tasks (Backend Engineering across sub-projects) ───────────────
     async function loadQuickTasks() {
@@ -1866,9 +1795,13 @@
             const data = await apiGet(`/tasks.json?searchFor=${encodeURIComponent(keyword)}&includeCompletedTasks=false&pageSize=100`);
             const items = data['todo-items'] || [];
 
-            // Filter by project name if a filter is set, deduplicate by project+tasklist+task
+            // Only keep tasks whose name actually contains the keyword,
+            // optionally filtered by project name, deduplicated
+            const keywordLower = keyword.toLowerCase();
             const seen = new Set();
             quickTasks = items.filter(t => {
+                const taskName = (t.content || t['todo-item-name'] || '').toLowerCase();
+                if (!taskName.includes(keywordLower)) return false;
                 const projName = (t['project-name'] || '').toLowerCase();
                 if (projFilter && !projName.includes(projFilter)) return false;
                 const key = `${t['project-id']}|${t.id}`;
@@ -1894,16 +1827,12 @@
         card.style.display = 'block';
 
         list.innerHTML = quickTasks.map((t, i) => {
-            const projName  = t['project-name'] || 'Unknown';
-            const listName  = t['todo-list-name'] || '';
-            const subtitle  = listName ? `${projName} › ${listName}` : projName;
-            return `<div class="relog-item" onclick="quickLogTask(${i})">
-                <div class="relog-info">
-                    <div class="relog-project" title="${esc(subtitle)}">${esc(subtitle)}</div>
-                    <div class="relog-desc">${esc(t.content || t['todo-item-name'] || '')}</div>
-                </div>
-                <div class="relog-time">0:15</div>
-                <div class="relog-badge">Fill</div>
+            const projName = t['project-name'] || 'Unknown';
+            const listName = t['todo-list-name'] || '';
+            return `<div class="qt-item" onclick="quickLogTask(${i})" title="${esc(projName)}${listName ? ' › ' + esc(listName) : ''}">
+                <div class="qt-proj">${esc(projName)}</div>
+                ${listName ? `<div class="qt-list">${esc(listName)}</div>` : ''}
+                <div class="qt-time">0:15</div>
             </div>`;
         }).join('');
     }
