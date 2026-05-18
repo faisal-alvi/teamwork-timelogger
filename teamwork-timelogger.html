@@ -230,6 +230,73 @@
             letter-spacing: 0.3px;
         }
 
+        /* Project search */
+        .project-search-wrap {
+            position: relative;
+            margin-bottom: 12px;
+        }
+        .project-search-wrap input {
+            width: 100%;
+            padding: 8px 12px 8px 32px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            font-size: 13px;
+            color: var(--text);
+            outline: none;
+            box-sizing: border-box;
+        }
+        .project-search-wrap input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(67,97,238,0.1);
+        }
+        .project-search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 13px;
+            color: var(--text-dimmer);
+            pointer-events: none;
+        }
+        .project-search-results {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0; right: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow-md);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .project-search-results.open { display: block; }
+        .search-result-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 6px;
+            margin: 2px 4px;
+        }
+        .search-result-item:hover, .search-result-item.active {
+            background: var(--accent-light);
+            color: var(--accent);
+        }
+        .search-result-item .result-project { font-weight: 600; }
+        .search-result-item .result-task {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 1px;
+        }
+        .search-no-results {
+            padding: 10px 12px;
+            font-size: 13px;
+            color: var(--text-dimmer);
+            text-align: center;
+        }
+
         /* target day pill */
         .target-day-pill {
             display: inline-flex;
@@ -859,6 +926,18 @@
     <div class="app-body">
         <!-- LEFT: Log form + Quick relog -->
         <div class="left-panel">
+
+            <!-- Project search -->
+            <div class="project-search-wrap" id="project-search-wrap">
+                <span class="project-search-icon">🔍</span>
+                <input type="text" id="project-search-input" placeholder="Search projects & tasks…"
+                    autocomplete="off"
+                    oninput="onProjectSearch(this.value)"
+                    onkeydown="onProjectSearchKey(event)"
+                    onfocus="onProjectSearchFocus()"
+                    onblur="onProjectSearchBlur()">
+                <div class="project-search-results" id="project-search-results"></div>
+            </div>
 
             <!-- Quick Tasks (Backend Engineering across sub-projects) -->
             <div class="quick-tasks-card" id="quick-tasks-card" style="display:none;">
@@ -1831,6 +1910,103 @@
 
         quickTasks = found;
         renderQuickTasks();
+    }
+
+    // ─── Project search ───────────────────────────────────────────────────────
+    let _searchResults  = [];
+    let _searchActive   = -1;
+    let _searchBlurTimer = null;
+
+    function onProjectSearch(q) {
+        const results = document.getElementById('project-search-results');
+        _searchActive = -1;
+        q = q.trim().toLowerCase();
+
+        if (!q) { results.classList.remove('open'); return; }
+
+        // Match projects by name
+        const matched = [];
+        projects.forEach(p => {
+            if ((p.name || '').toLowerCase().includes(q)) {
+                matched.push({ label: p.name, projectId: p.id, taskId: null, sub: null });
+            }
+            // Also match cached tasks for this project
+            (projectTasks[p.id] || []).forEach(t => {
+                if ((t.content || '').toLowerCase().includes(q)) {
+                    matched.push({ label: t.content, projectId: p.id, taskId: t.id, sub: p.name });
+                }
+            });
+        });
+
+        _searchResults = matched.slice(0, 12);
+
+        if (!_searchResults.length) {
+            results.innerHTML = '<div class="search-no-results">No matches</div>';
+        } else {
+            results.innerHTML = _searchResults.map((r, i) => `
+                <div class="search-result-item" data-idx="${i}" onmousedown="pickSearchResult(${i})">
+                    <div class="result-project">${esc(r.label)}</div>
+                    ${r.sub ? `<div class="result-task">${esc(r.sub)}</div>` : ''}
+                </div>`).join('');
+        }
+        results.classList.add('open');
+    }
+
+    function pickSearchResult(idx) {
+        const r = _searchResults[idx];
+        if (!r) return;
+
+        // Select project in dropdown
+        const projSel = document.getElementById('project-select');
+        projSel.value = r.projectId;
+
+        // Load tasks then optionally pick one
+        loadTasksForProject(r.projectId).then(() => {
+            if (r.taskId) {
+                document.getElementById('task-select').value = r.taskId;
+            }
+        });
+
+        // Clear search
+        document.getElementById('project-search-input').value = '';
+        document.getElementById('project-search-results').classList.remove('open');
+        _searchResults = [];
+        _searchActive  = -1;
+    }
+
+    function onProjectSearchKey(e) {
+        const results = document.getElementById('project-search-results');
+        const items   = results.querySelectorAll('.search-result-item');
+        if (!items.length) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _searchActive = Math.min(_searchActive + 1, items.length - 1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            _searchActive = Math.max(_searchActive - 1, 0);
+        } else if (e.key === 'Enter' && _searchActive >= 0) {
+            e.preventDefault();
+            pickSearchResult(_searchActive);
+            return;
+        } else if (e.key === 'Escape') {
+            results.classList.remove('open');
+            return;
+        }
+        items.forEach((el, i) => el.classList.toggle('active', i === _searchActive));
+        if (_searchActive >= 0) items[_searchActive].scrollIntoView({ block: 'nearest' });
+    }
+
+    function onProjectSearchFocus() {
+        clearTimeout(_searchBlurTimer);
+        const q = document.getElementById('project-search-input').value;
+        if (q.trim()) onProjectSearch(q);
+    }
+
+    function onProjectSearchBlur() {
+        _searchBlurTimer = setTimeout(() => {
+            document.getElementById('project-search-results').classList.remove('open');
+        }, 150);
     }
 
     function renderQuickTasks() {
