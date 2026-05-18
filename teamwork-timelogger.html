@@ -1188,9 +1188,8 @@
         }
 
         updateTargetDayLabel();
-        loadProjects();
+        loadProjects(); // loadQuickTasks() is called inside after projects are ready
         loadWeekData();
-        loadQuickTasks();
     }
 
     // ─── Projects / Tasks ─────────────────────────────────────────────────────
@@ -1207,6 +1206,7 @@
             });
             const last = localStorage.getItem('tw_last_project');
             if (last) { sel.value = last; loadTasksForProject(); }
+            loadQuickTasks(); // projects now populated — safe to search
         } catch (e) {
             document.getElementById('status-dot').classList.remove('connected');
         }
@@ -1786,34 +1786,39 @@
     // ─── Quick Tasks (Backend Engineering across sub-projects) ───────────────
     async function loadQuickTasks() {
         const keyword = (rules.quickTaskKeyword || '').trim();
-        if (!keyword) return;
+        if (!keyword || !projects.length) return;
 
-        const projFilter = (rules.quickProjectFilter || '').toLowerCase().trim();
+        const keywordLower  = keyword.toLowerCase();
+        const projFilter    = (rules.quickProjectFilter || '').toLowerCase().trim();
 
-        try {
-            // Search tasks by keyword across all projects
-            const data = await apiGet(`/tasks.json?searchFor=${encodeURIComponent(keyword)}&includeCompletedTasks=false&pageSize=100`);
-            const items = data['todo-items'] || [];
+        // Filter to relevant projects first
+        const targetProjs = projFilter
+            ? projects.filter(p => (p.name || '').toLowerCase().includes(projFilter))
+            : projects;
 
-            // Only keep tasks whose name actually contains the keyword,
-            // optionally filtered by project name, deduplicated
-            const keywordLower = keyword.toLowerCase();
-            const seen = new Set();
-            quickTasks = items.filter(t => {
-                const taskName = (t.content || t['todo-item-name'] || '').toLowerCase();
-                if (!taskName.includes(keywordLower)) return false;
-                const projName = (t['project-name'] || '').toLowerCase();
-                if (projFilter && !projName.includes(projFilter)) return false;
-                const key = `${t['project-id']}|${t.id}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-            });
+        if (!targetProjs.length) return;
 
-            renderQuickTasks();
-        } catch (e) {
-            console.error('loadQuickTasks failed', e);
-        }
+        // Fetch tasks for each project in parallel, keep those matching the keyword
+        const seen   = new Set();
+        const found  = [];
+
+        await Promise.all(targetProjs.map(async p => {
+            try {
+                const data  = await apiGet(`/projects/${p.id}/tasks.json?pageSize=250&includeCompletedTasks=false`);
+                const items = data['todo-items'] || [];
+                items.forEach(t => {
+                    const name = (t.content || '').toLowerCase();
+                    if (!name.includes(keywordLower)) return;
+                    const key = `${p.id}|${t.id}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    found.push({ ...t, 'project-id': p.id, 'project-name': p.name });
+                });
+            } catch (_) {}
+        }));
+
+        quickTasks = found;
+        renderQuickTasks();
     }
 
     function renderQuickTasks() {
