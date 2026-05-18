@@ -1935,22 +1935,13 @@
 
         if (!q) { results.classList.remove('open'); return; }
 
+        // Scan .qt-list text inside each .qt-item
+        const items = document.querySelectorAll('#quick-tasks-list .qt-item');
         const matched = [];
-        const taskSel = document.getElementById('task-select');
-
-        // Scan optgroup labels (task list names like "Payfast", "Bookings", etc.)
-        taskSel.querySelectorAll('optgroup').forEach(grp => {
-            if (grp.label.toLowerCase().includes(q)) {
-                const firstOpt = grp.querySelector('option');
-                matched.push({ type: 'tasklist', label: grp.label, grpLabel: grp.label, firstVal: firstOpt?.value || '' });
-            }
-        });
-
-        // Scan individual task options
-        taskSel.querySelectorAll('option[value]').forEach(o => {
-            if (o.textContent.toLowerCase().includes(q)) {
-                const grp = o.closest('optgroup');
-                matched.push({ type: 'task', label: o.textContent, value: o.value, sub: grp?.label || '' });
+        items.forEach((el, i) => {
+            const listText = el.querySelector('.qt-list')?.textContent || '';
+            if (listText.toLowerCase().includes(q)) {
+                matched.push({ qtIndex: i, label: listText });
             }
         });
 
@@ -1962,7 +1953,6 @@
             results.innerHTML = _searchResults.map((r, i) => `
                 <div class="search-result-item" data-idx="${i}" onmousedown="pickSearchResult(${i})">
                     <div class="result-project">${esc(r.label)}</div>
-                    ${r.sub ? `<div class="result-task">${esc(r.sub)}</div>` : ''}
                 </div>`).join('');
         }
         results.classList.add('open');
@@ -1972,13 +1962,7 @@
         const r = _searchResults[idx];
         if (!r) return;
 
-        const taskSel = document.getElementById('task-select');
-        if (r.type === 'task') {
-            taskSel.value = r.value;
-        } else if (r.type === 'tasklist') {
-            // Select the first task in that group
-            if (r.firstVal) taskSel.value = r.firstVal;
-        }
+        quickLogTask(r.qtIndex);
 
         document.getElementById('project-search-input').value = '';
         document.getElementById('project-search-results').classList.remove('open');
