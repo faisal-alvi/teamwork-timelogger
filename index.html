@@ -1511,6 +1511,7 @@
 
         renderWeekDays();
         updateWeekTotal();
+        Object.keys(weekEntries).forEach(key => silentFixTimes(key));
     }
 
     // ─── Render week skeleton (immediate, before data) ────────────────────────
