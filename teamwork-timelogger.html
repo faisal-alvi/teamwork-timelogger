@@ -935,22 +935,7 @@
         <!-- LEFT: Log form + Quick relog -->
         <div class="left-panel">
 
-            <!-- Project search -->
-            <div class="project-search-wrap" id="project-search-wrap">
-                <span class="project-search-icon">🔍</span>
-                <input type="text" id="project-search-input" placeholder="Filter tasks…"
-                    autocomplete="off"
-                    oninput="onProjectSearch(this.value)"
-                    onkeydown="onProjectSearchKey(event)">
-            </div>
-
-            <!-- Quick Tasks (Back End Engineering across sub-projects) -->
-            <div class="quick-tasks-card" id="quick-tasks-card" style="display:none;">
-                <div class="section-label" id="quick-tasks-label">Quick Tasks</div>
-                <div class="quick-tasks-grid" id="quick-tasks-list"></div>
-            </div>
-
-            <!-- Linear quick-log -->
+            <!-- Linear quick-log (always first so it never gets pushed down) -->
             <div class="log-form-card" id="linear-card">
                 <div class="section-label">Linear Ticket</div>
                 <div class="form-group">
@@ -967,6 +952,21 @@
                     <span style="font-size:12px;color:var(--text-dim);font-weight:600;">m</span>
                     <button class="btn btn-primary" onclick="logLinearTicket()" style="margin-left:auto;padding:6px 14px;font-size:12px;">Log</button>
                 </div>
+            </div>
+
+            <!-- Project search -->
+            <div class="project-search-wrap" id="project-search-wrap">
+                <span class="project-search-icon">🔍</span>
+                <input type="text" id="project-search-input" placeholder="Filter tasks…"
+                    autocomplete="off"
+                    oninput="onProjectSearch(this.value)"
+                    onkeydown="onProjectSearchKey(event)">
+            </div>
+
+            <!-- Quick Tasks (Back End Engineering across sub-projects) -->
+            <div class="quick-tasks-card" id="quick-tasks-card" style="display:none;">
+                <div class="section-label" id="quick-tasks-label">Quick Tasks</div>
+                <div class="quick-tasks-grid" id="quick-tasks-list"></div>
             </div>
 
             <!-- Target day indicator -->
@@ -2044,19 +2044,33 @@
         return m ? m[1].toUpperCase() : null;
     }
 
+    function getPrefixMap() {
+        try { return JSON.parse(localStorage.getItem('tw_prefix_map') || '{}'); } catch { return {}; }
+    }
+    function savePrefixMap(map) {
+        localStorage.setItem('tw_prefix_map', JSON.stringify(map));
+    }
+
     function findQuickTaskForTicket(ticketId) {
         if (!ticketId) return null;
-        const prefix = ticketId.split('-')[0].toLowerCase();
+        const prefix = ticketId.split('-')[0].toUpperCase();
 
-        // Try: task list name contains prefix, or project name words abbreviated match prefix
+        // 1. Check saved prefix→taskId mapping first
+        const map = getPrefixMap();
+        if (map[prefix]) {
+            const saved = quickTasks.find(t => String(t.id) === String(map[prefix]));
+            if (saved) return saved;
+        }
+
+        // 2. Auto-detect: task list name or project name contains prefix (case-insensitive)
+        const prefixLower = prefix.toLowerCase();
         return quickTasks.find(t => {
-            const listLower    = (t['todo-list-name'] || '').toLowerCase();
-            const projLower    = (t['project-name']   || '').toLowerCase();
-            // direct contains
-            if (listLower.includes(prefix) || projLower.includes(prefix)) return true;
+            const listLower = (t['todo-list-name'] || '').toLowerCase();
+            const projLower = (t['project-name']   || '').toLowerCase();
+            if (listLower.includes(prefixLower) || projLower.includes(prefixLower)) return true;
             // abbreviation: first 3 chars of each word in project name, joined
             const abbrev = projLower.split(/\s+/).map(w => w.slice(0,3)).join('');
-            return abbrev.includes(prefix.slice(0,5)) || prefix.includes(abbrev.slice(0,5));
+            return abbrev.includes(prefixLower.slice(0,5)) || prefixLower.includes(abbrev.slice(0,5));
         }) || null;
     }
 
@@ -2071,8 +2085,42 @@
             el.innerHTML = `<span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
                 <span style="color:var(--text-dim);"> → ${list} › ${esc(task.content)}</span>`;
         } else {
-            el.innerHTML = `<span style="color:var(--text-dimmer);">Ticket <b>${esc(ticketId)}</b> — no matching task found</span>`;
+            // No match — show task picker to save a mapping
+            const prefix = ticketId.split('-')[0].toUpperCase();
+            const opts = quickTasks.map((t, i) => {
+                const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
+                return `<option value="${i}">${esc(label)}</option>`;
+            }).join('');
+            el.innerHTML = `
+                <div style="color:var(--text-dimmer);margin-bottom:5px;">
+                    No task for <b>${esc(prefix)}</b> — pick one to remember:
+                </div>
+                <div style="display:flex;gap:5px;align-items:center;">
+                    <select id="linear-map-select" style="flex:1;font-size:11px;padding:3px 5px;">
+                        <option value="">— choose task —</option>
+                        ${opts}
+                    </select>
+                    <button onclick="saveLinearPrefixMapping('${esc(ticketId)}')"
+                        style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">
+                        Save
+                    </button>
+                </div>`;
         }
+    }
+
+    function saveLinearPrefixMapping(ticketId) {
+        const sel = document.getElementById('linear-map-select');
+        if (!sel || sel.value === '') { toast('Pick a task first', 'error'); return; }
+        const task = quickTasks[parseInt(sel.value)];
+        if (!task) return;
+        const prefix = ticketId.split('-')[0].toUpperCase();
+        const map = getPrefixMap();
+        map[prefix] = String(task.id);
+        savePrefixMap(map);
+        // Re-run detection now that mapping is saved
+        const url = document.getElementById('linear-url').value;
+        onLinearUrlInput(url);
+        toast(`Saved: ${prefix} → ${task['todo-list-name'] || task.content}`, 'success');
     }
 
     async function logLinearTicket() {
@@ -2086,7 +2134,7 @@
         const ticketId = extractLinearId(url);
         const task     = ticketId ? findQuickTaskForTicket(ticketId) : null;
 
-        if (!task) { toast('No matching task found — use Quick Tasks or Log form', 'error'); return; }
+        if (!task) { toast('No matching task — pick one in the dropdown above to save a mapping', 'error'); return; }
 
         const dayKey     = toDayKey(targetDate);
         const apiDateStr = toApiDate(targetDate);
