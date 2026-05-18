@@ -1398,29 +1398,39 @@
 
     async function silentFixTimes(dayKey) {
         const entries = weekEntries[dayKey];
-        if (!entries || entries.length < 2) return;
+        if (!entries || !entries.length) return;
 
         const sorted = [...entries].sort((a, b) => timeStrToMins(a.time) - timeStrToMins(b.time));
 
-        // Check for overlaps
-        let overlap = false, prevEnd = 0;
-        for (const e of sorted) {
-            const start = timeStrToMins(e.time);
-            if (start < prevEnd) { overlap = true; break; }
-            prevEnd = start + (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
+        // Check for overlaps or missing times
+        let needsFix = entries.some(e => !e.time);
+        if (!needsFix) {
+            let prevEnd = 0;
+            for (const e of sorted) {
+                const start = timeStrToMins(e.time);
+                if (start < prevEnd) { needsFix = true; break; }
+                prevEnd = start + entryMins(e);
+            }
         }
-        if (!overlap) return;
+        if (!needsFix) return;
 
         const dateStr = dayKey.replace(/-/g, '');
         let cur = 9 * 60;
-        await Promise.all(sorted.map(e => {
+        const updates = sorted.map(e => {
             const h = Math.floor(cur / 60), m = cur % 60;
             const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-            cur += (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
-            return apiPut(`/time_entries/${e.id}.json`, {
+            cur += entryMins(e);
+            return { e, timeStr };
+        });
+
+        await Promise.all(updates.map(({ e, timeStr }) =>
+            apiPut(`/time_entries/${e.id}.json`, {
                 'time-entry': { date: dateStr, hours: String(e.hours), minutes: String(e.minutes), description: e.description || '', time: timeStr }
-            }).catch(err => console.warn('[TW] silentFixTimes failed for', e.id, err));
-        }));
+            }).then(() => { e.time = timeStr; })
+              .catch(err => console.warn('[TW] silentFixTimes failed for', e.id, err))
+        ));
+
+        renderWeekDays();
     }
 
     // ─── Target day (for log form) ────────────────────────────────────────────
