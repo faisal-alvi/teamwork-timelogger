@@ -1337,11 +1337,14 @@
         const end = new Date(weekStart); end.setDate(end.getDate() + 6);
         const uf = config.userId ? `&userId=${config.userId}` : '';
 
+        const url = `/time_entries.json?fromdate=${toApiDate(weekStart)}&todate=${toApiDate(end)}&pageSize=500${uf}`;
+        console.log('[TW] loadWeekData url:', url);
+
         try {
-            const data = await apiGet(
-                `/time_entries.json?fromdate=${toApiDate(weekStart)}&todate=${toApiDate(end)}&pageSize=500${uf}`
-            );
+            const data = await apiGet(url);
             const entries = data['time-entries'] || data['timeEntries'] || [];
+            console.log('[TW] loadWeekData response keys:', Object.keys(data), '| entries count:', entries.length);
+            if (entries.length) console.log('[TW] first entry sample:', JSON.stringify(entries[0]).slice(0, 200));
 
             // Group by day key
             weekEntries = {};
@@ -1350,6 +1353,7 @@
                 if (!weekEntries[key]) weekEntries[key] = [];
                 weekEntries[key].push(e);
             });
+            console.log('[TW] weekEntries keys after grouping:', Object.keys(weekEntries));
 
             renderWeekDays();
             updateWeekTotal();
@@ -1726,11 +1730,13 @@
         const d = new Date(+parts[0], +parts[1]-1, +parts[2]);
         const uf = config.userId ? `&userId=${config.userId}` : '';
 
+        const dayUrl = `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`;
+        console.log('[TW] reloadDay url:', dayUrl);
         try {
-            const data = await apiGet(
-                `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`
-            );
-            weekEntries[key] = data['time-entries'] || data['timeEntries'] || [];
+            const data = await apiGet(dayUrl);
+            const dayEntries = data['time-entries'] || data['timeEntries'] || [];
+            console.log('[TW] reloadDay', key, '| response keys:', Object.keys(data), '| entries:', dayEntries.length);
+            weekEntries[key] = dayEntries;
             renderWeekDays();
             updateWeekTotal();
         } catch (e) {
