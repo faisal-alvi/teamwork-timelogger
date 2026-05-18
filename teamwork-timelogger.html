@@ -918,6 +918,7 @@
                 <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
+            <button class="settings-btn" onclick="openRescue()" style="background:var(--danger);color:#fff;border-color:var(--danger);">🚨 Rescue</button>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
             <button class="settings-btn" onclick="openSettings()">Settings</button>
         </div>
@@ -1020,6 +1021,21 @@
             <div id="week-days-container">
                 <!-- Day blocks rendered by JS -->
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rescue Modal -->
+<div class="modal-overlay" id="rescue-modal" style="display:none;align-items:center;justify-content:center;">
+    <div class="modal" style="max-width:560px;width:100%;">
+        <h2 style="margin-bottom:4px;">Rescue entries</h2>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Entries from the May 11–17 week. Check the ones that belong on <strong>May 18</strong> and click Move.</p>
+        <div id="rescue-list" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:16px;">
+            <div style="padding:16px;color:var(--text-dimmer);font-size:13px;">Loading…</div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-ghost" onclick="closeRescue()">Cancel</button>
+            <button class="btn btn-primary" id="rescue-move-btn" onclick="rescueMoveSelected()">Move selected to May 18</button>
         </div>
     </div>
 </div>
@@ -1845,10 +1861,86 @@
         document.getElementById(`edit-${id}`)?.classList.remove('open');
     }
 
+    // ─── Rescue ───────────────────────────────────────────────────────────────
+    let _rescueEntries = [];
+
+    async function openRescue() {
+        document.getElementById('rescue-modal').style.display = 'flex';
+        document.getElementById('rescue-list').innerHTML = '<div style="padding:16px;color:var(--text-dimmer);font-size:13px;">Loading May 11–17 entries…</div>';
+
+        const uf = config.userId ? `&userId=${config.userId}` : '';
+        try {
+            const data = await apiGet(`/time_entries.json?fromdate=20260511&todate=20260517&pageSize=500${uf}`);
+            _rescueEntries = data['time-entries'] || data['timeEntries'] || [];
+
+            if (!_rescueEntries.length) {
+                document.getElementById('rescue-list').innerHTML = '<div style="padding:16px;color:var(--text-dimmer);font-size:13px;">No entries found in that week.</div>';
+                return;
+            }
+
+            document.getElementById('rescue-list').innerHTML = _rescueEntries.map((e, i) => {
+                const h = parseInt(e.hours) || 0, m = parseInt(e.minutes) || 0;
+                const desc = e.description || e['todo-item-name'] || '—';
+                const list = e['todo-list-name'] ? `<span style="color:var(--text-dimmer);font-size:11px;"> · ${esc(e['todo-list-name'])}</span>` : '';
+                const dateLabel = (() => {
+                    const s = e.date || '';
+                    if (s.length === 8) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+                    return s.slice(0,10);
+                })();
+                return `<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;">
+                    <input type="checkbox" data-idx="${i}" style="margin-top:3px;flex-shrink:0;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:13px;font-weight:600;">${esc(desc)}${list}</div>
+                        <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">${dateLabel} · ${h}h ${m}m${e.time ? ' · starts ' + e.time : ''}</div>
+                    </div>
+                </label>`;
+            }).join('');
+        } catch (err) {
+            document.getElementById('rescue-list').innerHTML = `<div style="padding:16px;color:var(--danger);font-size:13px;">Failed to load: ${err.message}</div>`;
+        }
+    }
+
+    function closeRescue() {
+        document.getElementById('rescue-modal').style.display = 'none';
+        _rescueEntries = [];
+    }
+
+    async function rescueMoveSelected() {
+        const checked = [...document.querySelectorAll('#rescue-list input[type=checkbox]:checked')];
+        if (!checked.length) { toast('Select at least one entry', 'error'); return; }
+
+        const btn = document.getElementById('rescue-move-btn');
+        btn.disabled = true; btn.textContent = 'Moving…';
+
+        try {
+            await Promise.all(checked.map(cb => {
+                const e = _rescueEntries[parseInt(cb.dataset.idx)];
+                return apiPut(`/time_entries/${e.id}.json`, {
+                    'time-entry': {
+                        date: '20260518',
+                        hours: String(e.hours),
+                        minutes: String(e.minutes),
+                        description: e.description || ''
+                    }
+                });
+            }));
+            toast(`Moved ${checked.length} entr${checked.length === 1 ? 'y' : 'ies'} to May 18`, 'success');
+            closeRescue();
+            await loadWeekData();
+        } catch (err) {
+            toast('Failed: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Move selected to May 18';
+        }
+    }
+
     async function fixDayTimes(dayKey, evt) {
         if (evt) evt.stopPropagation();
         const entries = weekEntries[dayKey];
         if (!entries || !entries.length) { toast('No entries for this day', 'error'); return; }
+
+        const parts = dayKey.split('-');
+        const dateStr = parts.join(''); // YYYYMMDD for the date field
 
         // Sort by existing start time if present, otherwise keep current order
         const sorted = [...entries].sort((a, b) => {
@@ -1863,13 +1955,13 @@
             const startM = curMins % 60;
             const timeStr = `${String(startH).padStart(2,'0')}:${String(startM).padStart(2,'0')}`;
             curMins += (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
-            return { id: e.id, time: timeStr, hours: e.hours, minutes: e.minutes, description: e.description || '' };
+            return { id: e.id, time: timeStr, date: dateStr, hours: e.hours, minutes: e.minutes, description: e.description || '' };
         });
 
         try {
             await Promise.all(updates.map(u =>
                 apiPut(`/time_entries/${u.id}.json`, {
-                    'time-entry': { hours: String(u.hours), minutes: String(u.minutes), description: u.description, time: u.time }
+                    'time-entry': { date: u.date, hours: String(u.hours), minutes: String(u.minutes), description: u.description, time: u.time }
                 })
             ));
             toast('Start times fixed', 'success');
