@@ -967,11 +967,13 @@
                     <label>Quick set</label>
                     <div class="quick-times">
                         <button class="quick-time" onclick="setTime(0,30,this)">0:30</button>
+                        <button class="quick-time" onclick="setTime(0,45,this)">0:45</button>
                         <button class="quick-time" onclick="setTime(1,0,this)">1:00</button>
+                        <button class="quick-time" onclick="setTime(1,30,this)">1:30</button>
+                        <button class="quick-time" onclick="setTime(1,45,this)">1:45</button>
                         <button class="quick-time" onclick="setTime(2,0,this)">2:00</button>
-                        <button class="quick-time" onclick="setTime(4,0,this)">4:00</button>
-                        <button class="quick-time" onclick="setTime(7,0,this)">7:00</button>
-                        <button class="quick-time" onclick="setTime(8,0,this)">8:00</button>
+                        <button class="quick-time" onclick="setTime(2,30,this)">2:30</button>
+                        <button class="quick-time" onclick="setTime(3,0,this)">3:00</button>
                     </div>
                 </div>
 
@@ -1474,6 +1476,7 @@
                     <div class="day-header-right">
                         <span class="day-total-chip">—</span>
                         <button class="add-btn" onclick="openInlineAdd('${key}','${toApiDate(d)}',event)">+ Add</button>
+                        <button class="add-btn" style="background:var(--surface-2);color:var(--text-dim);border-color:var(--border);" onclick="fixDayTimes('${key}',event)" title="Assign sequential start times so entries don\'t overlap">Fix times</button>
                         <span class="collapse-icon">▾</span>
                     </div>
                 </div>
@@ -1582,7 +1585,7 @@
             breadcrumb = `<span class="bc-tasklist">${taskList}</span>`;
         }
 
-        return `<div class="entry-row" id="er-${e.id}">
+        return `<div class="entry-row" id="er-${e.id}" style="cursor:pointer;" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}')">
             <div class="entry-info">
                 ${breadcrumb ? `<div class="entry-breadcrumb">${breadcrumb}</div>` : ''}
                 ${desc
@@ -1592,8 +1595,7 @@
             </div>
             <div class="entry-hours">${h}:${String(m).padStart(2,'0')}</div>
             <div class="entry-actions">
-                <button title="Edit" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}')">✏</button>
-                <button class="del" title="Delete" onclick="deleteEntry('${e.id}')">✕</button>
+                <button class="del" title="Delete" onclick="event.stopPropagation();deleteEntry('${e.id}')">✕</button>
             </div>
         </div>
         <div class="edit-row" id="edit-${e.id}">
@@ -1841,6 +1843,40 @@
 
     function closeEditRow(id) {
         document.getElementById(`edit-${id}`)?.classList.remove('open');
+    }
+
+    async function fixDayTimes(dayKey, evt) {
+        if (evt) evt.stopPropagation();
+        const entries = weekEntries[dayKey];
+        if (!entries || !entries.length) { toast('No entries for this day', 'error'); return; }
+
+        // Sort by existing start time if present, otherwise keep current order
+        const sorted = [...entries].sort((a, b) => {
+            const ta = a.time || '00:00', tb = b.time || '00:00';
+            return ta.localeCompare(tb);
+        });
+
+        // Assign sequential start times from 09:00
+        let curMins = 9 * 60;
+        const updates = sorted.map(e => {
+            const startH = Math.floor(curMins / 60);
+            const startM = curMins % 60;
+            const timeStr = `${String(startH).padStart(2,'0')}:${String(startM).padStart(2,'0')}`;
+            curMins += (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
+            return { id: e.id, time: timeStr, hours: e.hours, minutes: e.minutes, description: e.description || '' };
+        });
+
+        try {
+            await Promise.all(updates.map(u =>
+                apiPut(`/time_entries/${u.id}.json`, {
+                    'time-entry': { hours: String(u.hours), minutes: String(u.minutes), description: u.description, time: u.time }
+                })
+            ));
+            toast('Start times fixed', 'success');
+            await reloadDay(dayKey);
+        } catch (e) {
+            toast('Failed: ' + e.message, 'error');
+        }
     }
 
     async function saveEdit(id) {
