@@ -1311,10 +1311,21 @@
     }
 
     function _fillTasks(sel, tasks) {
+        const groups = {}, order = [];
         tasks.forEach(t => {
-            const o = document.createElement('option');
-            o.value = t.id; o.textContent = t.content;
-            sel.appendChild(o);
+            const list = t['todo-list-name'] || '';
+            if (!groups[list]) { groups[list] = []; order.push(list); }
+            groups[list].push(t);
+        });
+        order.forEach(list => {
+            const grp = document.createElement('optgroup');
+            grp.label = list || 'Tasks';
+            groups[list].forEach(t => {
+                const o = document.createElement('option');
+                o.value = t.id; o.textContent = t.content;
+                grp.appendChild(o);
+            });
+            sel.appendChild(grp);
         });
     }
 
@@ -1925,27 +1936,22 @@
         if (!q) { results.classList.remove('open'); return; }
 
         const matched = [];
-        const seenLists = new Set();
+        const taskSel = document.getElementById('task-select');
 
-        projects.forEach(p => {
-            // Match project name
-            if ((p.name || '').toLowerCase().includes(q)) {
-                matched.push({ type: 'project', label: p.name, projectId: p.id, sub: null });
+        // Scan optgroup labels (task list names like "Payfast", "Bookings", etc.)
+        taskSel.querySelectorAll('optgroup').forEach(grp => {
+            if (grp.label.toLowerCase().includes(q)) {
+                const firstOpt = grp.querySelector('option');
+                matched.push({ type: 'tasklist', label: grp.label, grpLabel: grp.label, firstVal: firstOpt?.value || '' });
             }
-            // Match task list names and individual tasks
-            (projectTasks[p.id] || []).forEach(t => {
-                const listName = t['todo-list-name'] || '';
-                const listKey  = `${p.id}|${listName}`;
-                // Task list match → one result per unique list
-                if (listName && listName.toLowerCase().includes(q) && !seenLists.has(listKey)) {
-                    seenLists.add(listKey);
-                    matched.push({ type: 'tasklist', label: listName, projectId: p.id, listName, sub: p.name });
-                }
-                // Individual task name match
-                if ((t.content || '').toLowerCase().includes(q)) {
-                    matched.push({ type: 'task', label: t.content, projectId: p.id, taskId: t.id, sub: listName || p.name });
-                }
-            });
+        });
+
+        // Scan individual task options
+        taskSel.querySelectorAll('option[value]').forEach(o => {
+            if (o.textContent.toLowerCase().includes(q)) {
+                const grp = o.closest('optgroup');
+                matched.push({ type: 'task', label: o.textContent, value: o.value, sub: grp?.label || '' });
+            }
         });
 
         _searchResults = matched.slice(0, 12);
@@ -1953,13 +1959,11 @@
         if (!_searchResults.length) {
             results.innerHTML = '<div class="search-no-results">No matches</div>';
         } else {
-            results.innerHTML = _searchResults.map((r, i) => {
-                const icon = r.type === 'tasklist' ? '📁 ' : r.type === 'project' ? '🗂 ' : '';
-                return `<div class="search-result-item" data-idx="${i}" onmousedown="pickSearchResult(${i})">
-                    <div class="result-project">${icon}${esc(r.label)}</div>
+            results.innerHTML = _searchResults.map((r, i) => `
+                <div class="search-result-item" data-idx="${i}" onmousedown="pickSearchResult(${i})">
+                    <div class="result-project">${esc(r.label)}</div>
                     ${r.sub ? `<div class="result-task">${esc(r.sub)}</div>` : ''}
-                </div>`;
-            }).join('');
+                </div>`).join('');
         }
         results.classList.add('open');
     }
@@ -1968,33 +1972,18 @@
         const r = _searchResults[idx];
         if (!r) return;
 
-        const projSel = document.getElementById('project-select');
-        projSel.value = r.projectId;
+        const taskSel = document.getElementById('task-select');
+        if (r.type === 'task') {
+            taskSel.value = r.value;
+        } else if (r.type === 'tasklist') {
+            // Select the first task in that group
+            if (r.firstVal) taskSel.value = r.firstVal;
+        }
 
-        loadTasksForProject(r.projectId).then(() => {
-            if (r.type === 'task' && r.taskId) {
-                document.getElementById('task-select').value = r.taskId;
-            } else if (r.type === 'tasklist') {
-                filterTaskDropdownToList(r.listName, r.projectId);
-            }
-        });
-
-        // Clear search
         document.getElementById('project-search-input').value = '';
         document.getElementById('project-search-results').classList.remove('open');
         _searchResults = [];
         _searchActive  = -1;
-    }
-
-    function filterTaskDropdownToList(listName, projectId) {
-        const sel   = document.getElementById('task-select');
-        const tasks = projectTasks[projectId] || [];
-        sel.innerHTML = '<option value="">No task</option>';
-        tasks.filter(t => t['todo-list-name'] === listName).forEach(t => {
-            const o = document.createElement('option');
-            o.value = t.id; o.textContent = t.content;
-            sel.appendChild(o);
-        });
     }
 
     function onProjectSearchKey(e) {
