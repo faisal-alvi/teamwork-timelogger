@@ -848,6 +848,7 @@
             <div class="week-nav-header">
                 <button class="icon-btn" onclick="changeWeek(-1)">←</button>
                 <span class="week-range" id="week-range" onclick="goToThisWeek()">Loading…</span>
+                <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
@@ -1340,7 +1341,7 @@
             const data = await apiGet(
                 `/time_entries.json?fromdate=${toApiDate(weekStart)}&todate=${toApiDate(end)}&pageSize=500${uf}`
             );
-            const entries = data['time-entries'] || [];
+            const entries = data['time-entries'] || data['timeEntries'] || [];
 
             // Group by day key
             weekEntries = {};
@@ -1729,9 +1730,11 @@
             const data = await apiGet(
                 `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`
             );
-            weekEntries[key] = data['time-entries'] || [];
+            weekEntries[key] = data['time-entries'] || data['timeEntries'] || [];
             renderWeekDays();
             updateWeekTotal();
+        } catch (e) {
+            toast('Could not refresh entries: ' + e.message, 'error');
         } finally {
             block.classList.remove('loading');
         }
