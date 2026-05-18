@@ -1329,38 +1329,38 @@
         document.getElementById('week-range').textContent = `${fmt(weekStart)} — ${fmt(end)}`;
     }
 
-    // ─── Load entire week ─────────────────────────────────────────────────────
+    // ─── Load entire week (one fetch per day, same logic as reloadDay) ──────────
     async function loadWeekData() {
         updateWeekRange();
         renderWeekSkeleton();
+        weekEntries = {};
 
-        const end = new Date(weekStart); end.setDate(end.getDate() + 6);
         const uf = config.userId ? `&userId=${config.userId}` : '';
+        const fetches = [];
 
-        const url = `/time_entries.json?fromdate=${toApiDate(weekStart)}&todate=${toApiDate(end)}&pageSize=500${uf}`;
-        console.log('[TW] loadWeekData url:', url);
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(weekStart);
+            d.setDate(d.getDate() + i);
+            const key = toDayKey(d);
+            const url = `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`;
+            fetches.push(
+                apiGet(url)
+                    .then(data => {
+                        weekEntries[key] = data['time-entries'] || data['timeEntries'] || [];
+                    })
+                    .catch(e => {
+                        console.warn('[TW] failed to load', key, e);
+                        weekEntries[key] = [];
+                    })
+            );
+        }
 
         try {
-            const data = await apiGet(url);
-            const entries = data['time-entries'] || data['timeEntries'] || [];
-            console.log('[TW] loadWeekData response keys:', Object.keys(data), '| entries count:', entries.length);
-            if (entries.length) console.log('[TW] first entry sample:', JSON.stringify(entries[0]).slice(0, 200));
+            await Promise.all(fetches);
+        } catch (e) { /* individual errors already handled above */ }
 
-            // Group by day key
-            weekEntries = {};
-            entries.forEach(e => {
-                const key = entryDateKey(e);
-                if (!weekEntries[key]) weekEntries[key] = [];
-                weekEntries[key].push(e);
-            });
-            console.log('[TW] weekEntries keys after grouping:', Object.keys(weekEntries));
-
-            renderWeekDays();
-            updateWeekTotal();
-        } catch (e) {
-            console.error('Week load failed', e);
-            toast('Failed to load week data', 'error');
-        }
+        renderWeekDays();
+        updateWeekTotal();
     }
 
     // ─── Render week skeleton (immediate, before data) ────────────────────────
