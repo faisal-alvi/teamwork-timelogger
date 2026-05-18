@@ -538,6 +538,14 @@
 
         .entry-row:hover { background: var(--surface-2); }
 
+        .entry-time-range {
+            font-size: 11px;
+            color: var(--text-dimmer);
+            font-weight: 600;
+            margin-bottom: 2px;
+            letter-spacing: 0.2px;
+        }
+
         .entry-info { flex: 1; min-width: 0; }
 
         .entry-breadcrumb {
@@ -1615,6 +1623,21 @@
         const taskName  = e['todo-item-name']  ? esc(e['todo-item-name'])  : '';
         const barColor  = color || 'var(--accent)';
 
+        // Start / end time
+        let timeRange = '';
+        if (e.time) {
+            const startMins = timeStrToMins(e.time);
+            const endMins   = startMins + h * 60 + m;
+            const fmt = mins => {
+                const hh = Math.floor(mins / 60) % 24;
+                const mm = mins % 60;
+                const period = hh < 12 ? 'AM' : 'PM';
+                const hh12  = hh % 12 || 12;
+                return `${hh12}:${String(mm).padStart(2,'0')} ${period}`;
+            };
+            timeRange = `<div class="entry-time-range">${fmt(startMins)} – ${fmt(endMins)}</div>`;
+        }
+
         // Breadcrumb: TaskList › Task
         let breadcrumb = '';
         if (taskList && taskName) {
@@ -1629,6 +1652,7 @@
 
         return `<div class="entry-row" id="er-${e.id}" style="cursor:pointer;" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}')">
             <div class="entry-info">
+                ${timeRange}
                 ${breadcrumb ? `<div class="entry-breadcrumb">${breadcrumb}</div>` : ''}
                 ${desc
                     ? `<div class="entry-desc">${desc}</div>`
