@@ -1127,6 +1127,9 @@
             </div>
         </div>
 
+        <!-- Linear Prefix Mappings -->
+        <div class="rules-section" id="prefix-map-section"></div>
+
         <div class="modal-actions">
             <button class="btn btn-danger" onclick="clearData()">Disconnect</button>
             <button class="btn btn-ghost" onclick="closeSettings()">Cancel</button>
@@ -2219,7 +2222,74 @@
         document.getElementById('rule-ext-cap').value         = rules.extensionCapPct;
         document.getElementById('rule-task-keyword').value    = rules.quickTaskKeyword;
         document.getElementById('rule-project-filter').value  = rules.quickProjectFilter;
+        renderPrefixMapSection();
         document.getElementById('settings-modal').classList.add('open');
+    }
+
+    function renderPrefixMapSection() {
+        const section = document.getElementById('prefix-map-section');
+        const map = getPrefixMap();
+        const prefixes = Object.keys(map);
+
+        if (!prefixes.length) {
+            section.innerHTML = `
+                <h3>Linear Prefix Mappings</h3>
+                <p style="font-size:12px;color:var(--text-dimmer);padding:4px 0;">No mappings saved yet. Paste a Linear URL to create one.</p>`;
+            return;
+        }
+
+        const taskOpts = quickTasks.map(t => {
+            const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
+            return `<option value="${esc(String(t.id))}">${esc(label)}</option>`;
+        }).join('');
+
+        const rows = prefixes.map(prefix => {
+            const taskId = map[prefix];
+            const task   = quickTasks.find(t => String(t.id) === String(taskId));
+            const taskLabel = task
+                ? [task['project-name'], task['todo-list-name'], task.content].filter(Boolean).join(' › ')
+                : `Unknown task (id: ${taskId})`;
+
+            // Build select with current task selected
+            const opts = quickTasks.map(t => {
+                const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
+                const sel   = String(t.id) === String(taskId) ? ' selected' : '';
+                return `<option value="${esc(String(t.id))}"${sel}>${esc(label)}</option>`;
+            }).join('');
+
+            return `
+                <div class="rule-row" id="pm-row-${esc(prefix)}">
+                    <div class="rule-label" style="flex:0 0 auto;min-width:72px;">
+                        <code style="font-size:12px;font-weight:700;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;">${esc(prefix)}</code>
+                    </div>
+                    <div class="rule-control" style="flex:1;justify-content:flex-end;gap:6px;">
+                        <select style="flex:1;max-width:260px;font-size:11px;padding:3px 5px;border:1.5px solid var(--border);border-radius:6px;outline:none;"
+                            onchange="updatePrefixMapping('${esc(prefix)}', this.value)">
+                            ${opts}
+                        </select>
+                        <button onclick="deletePrefixMapping('${esc(prefix)}')"
+                            style="background:none;border:none;cursor:pointer;color:var(--text-dimmer);font-size:16px;line-height:1;padding:2px 4px;"
+                            title="Remove mapping">×</button>
+                    </div>
+                </div>`;
+        }).join('');
+
+        section.innerHTML = `<h3>Linear Prefix Mappings</h3>${rows}`;
+    }
+
+    function updatePrefixMapping(prefix, taskId) {
+        const map = getPrefixMap();
+        map[prefix] = taskId;
+        savePrefixMap(map);
+        toast(`${prefix} mapping updated`, 'success');
+    }
+
+    function deletePrefixMapping(prefix) {
+        const map = getPrefixMap();
+        delete map[prefix];
+        savePrefixMap(map);
+        renderPrefixMapSection();
+        toast(`${prefix} mapping removed`, 'success');
     }
 
     function closeSettings() {
