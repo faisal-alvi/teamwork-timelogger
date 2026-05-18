@@ -936,7 +936,7 @@
                     onkeydown="onProjectSearchKey(event)">
             </div>
 
-            <!-- Quick Tasks (Backend Engineering across sub-projects) -->
+            <!-- Quick Tasks (Back End Engineering across sub-projects) -->
             <div class="quick-tasks-card" id="quick-tasks-card" style="display:none;">
                 <div class="section-label" id="quick-tasks-label">Quick Tasks</div>
                 <div class="quick-tasks-grid" id="quick-tasks-list"></div>
@@ -1082,7 +1082,7 @@
                     <div class="rule-desc">Task names containing this text appear in the Quick Tasks panel</div>
                 </div>
                 <div class="rule-control">
-                    <input class="rule-input" type="text" id="rule-task-keyword" style="width:160px;text-align:left;" placeholder="Backend Engineering">
+                    <input class="rule-input" type="text" id="rule-task-keyword" style="width:160px;text-align:left;" placeholder="Back End Engineering">
                 </div>
             </div>
 
@@ -1175,7 +1175,7 @@
     let targetDate   = new Date();          // the day we're logging INTO
     let projects     = [];
     let projectTasks = {};
-    let quickTasks   = [];                  // Backend Engineering tasks across projects
+    let quickTasks   = [];                  // Back End Engineering tasks across projects
     let weekEntries  = {};                  // key: 'YYYY-MM-DD' → array of entries
 
     // ─── Boot ─────────────────────────────────────────────────────────────────
@@ -1882,7 +1882,7 @@
     }
 
 
-    // ─── Quick Tasks (Backend Engineering across sub-projects) ───────────────
+    // ─── Quick Tasks (Back End Engineering across sub-projects) ───────────────
     async function loadQuickTasks() {
         const keyword = (rules.quickTaskKeyword || '').trim();
         if (!keyword || !projects.length) return;
@@ -2008,7 +2008,7 @@
         rules.roundingMins       = parseInt(document.getElementById('rule-rounding').value)       || 5;
         rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value)    || 9;
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)        || 150;
-        rules.quickTaskKeyword   = document.getElementById('rule-task-keyword').value.trim()   || 'Backend Engineering';
+        rules.quickTaskKeyword   = document.getElementById('rule-task-keyword').value.trim()   || 'Back End Engineering';
         rules.quickProjectFilter = document.getElementById('rule-project-filter').value.trim();
         saveRules();
 
@@ -2158,7 +2158,7 @@
         roundingMins:       5,
         dailyCapHours:      9,
         extensionCapPct:    150,
-        quickTaskKeyword:   'Backend Engineering',
+        quickTaskKeyword:   'Back End Engineering',
         quickProjectFilter: 'WooCommerce',
     };
 
