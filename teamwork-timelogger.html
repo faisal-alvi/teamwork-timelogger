@@ -950,6 +950,25 @@
                 <div class="quick-tasks-grid" id="quick-tasks-list"></div>
             </div>
 
+            <!-- Linear quick-log -->
+            <div class="log-form-card" id="linear-card">
+                <div class="section-label">Linear Ticket</div>
+                <div class="form-group">
+                    <input type="text" id="linear-url" placeholder="Paste Linear URL…" autocomplete="off"
+                        oninput="onLinearUrlInput(this.value)"
+                        onpaste="setTimeout(()=>onLinearUrlInput(this.value),0)"
+                        style="font-size:12px;">
+                </div>
+                <div id="linear-detected" style="font-size:12px;margin:-4px 0 8px;min-height:18px;"></div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <input type="number" id="linear-h" value="0" min="0" max="23" style="width:58px;text-align:center;">
+                    <span style="font-size:12px;color:var(--text-dim);font-weight:600;">h</span>
+                    <input type="number" id="linear-m" value="30" min="0" max="59" step="15" style="width:58px;text-align:center;">
+                    <span style="font-size:12px;color:var(--text-dim);font-weight:600;">m</span>
+                    <button class="btn btn-primary" onclick="logLinearTicket()" style="margin-left:auto;padding:6px 14px;font-size:12px;">Log</button>
+                </div>
+            </div>
+
             <!-- Target day indicator -->
             <div class="target-day-pill" id="target-day-pill">
                 📅 <span id="target-day-label">Today</span>
@@ -1381,13 +1400,13 @@
     }
 
     function timeStrToMins(t) {
-        const parts = (t || '09:00').split(':');
+        const parts = (t || '13:00').split(':');
         return parseInt(parts[0]) * 60 + (parseInt(parts[1]) || 0);
     }
 
     function nextStartTime(dayKey) {
         const entries = weekEntries[dayKey] || [];
-        let maxEnd = 9 * 60;
+        let maxEnd = 13 * 60;
         entries.forEach(e => {
             const start = timeStrToMins(e.time || null);
             const end   = start + (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
@@ -1415,7 +1434,7 @@
         if (!needsFix) return;
 
         const dateStr = dayKey.replace(/-/g, '');
-        let cur = 9 * 60;
+        let cur = 13 * 60;
         const updates = sorted.map(e => {
             const h = Math.floor(cur / 60), m = cur % 60;
             const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
@@ -2016,6 +2035,82 @@
         if (e.key === 'Escape') {
             document.getElementById('project-search-input').value = '';
             onProjectSearch('');
+        }
+    }
+
+    // ─── Linear quick-log ─────────────────────────────────────────────────────
+    function extractLinearId(url) {
+        const m = url.match(/\/issue\/([A-Z]+-\d+)/i);
+        return m ? m[1].toUpperCase() : null;
+    }
+
+    function findQuickTaskForTicket(ticketId) {
+        if (!ticketId) return null;
+        const prefix = ticketId.split('-')[0].toLowerCase();
+
+        // Try: task list name contains prefix, or project name words abbreviated match prefix
+        return quickTasks.find(t => {
+            const listLower    = (t['todo-list-name'] || '').toLowerCase();
+            const projLower    = (t['project-name']   || '').toLowerCase();
+            // direct contains
+            if (listLower.includes(prefix) || projLower.includes(prefix)) return true;
+            // abbreviation: first 3 chars of each word in project name, joined
+            const abbrev = projLower.split(/\s+/).map(w => w.slice(0,3)).join('');
+            return abbrev.includes(prefix.slice(0,5)) || prefix.includes(abbrev.slice(0,5));
+        }) || null;
+    }
+
+    function onLinearUrlInput(val) {
+        const el = document.getElementById('linear-detected');
+        const ticketId = extractLinearId(val);
+        if (!ticketId) { el.innerHTML = ''; return; }
+
+        const task = findQuickTaskForTicket(ticketId);
+        if (task) {
+            const list = esc(task['todo-list-name'] || '');
+            el.innerHTML = `<span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
+                <span style="color:var(--text-dim);"> → ${list} › ${esc(task.content)}</span>`;
+        } else {
+            el.innerHTML = `<span style="color:var(--text-dimmer);">Ticket <b>${esc(ticketId)}</b> — no matching task found</span>`;
+        }
+    }
+
+    async function logLinearTicket() {
+        const url      = document.getElementById('linear-url').value.trim();
+        const h        = parseInt(document.getElementById('linear-h').value) || 0;
+        const m        = parseInt(document.getElementById('linear-m').value) || 0;
+
+        if (!url) { toast('Paste a Linear URL', 'error'); return; }
+        if (h === 0 && m === 0) { toast('Enter time', 'error'); return; }
+
+        const ticketId = extractLinearId(url);
+        const task     = ticketId ? findQuickTaskForTicket(ticketId) : null;
+
+        if (!task) { toast('No matching task found — use Quick Tasks or Log form', 'error'); return; }
+
+        const dayKey     = toDayKey(targetDate);
+        const apiDateStr = toApiDate(targetDate);
+
+        try {
+            await apiPost(`/tasks/${task.id}/time_entries.json`, {
+                'time-entry': {
+                    description: url,
+                    date: apiDateStr,
+                    hours: String(h),
+                    minutes: String(m),
+                    isbillable: '1',
+                    time: nextStartTime(dayKey)
+                }
+            });
+            toast(`Logged ${h}h ${m}m for ${ticketId}`, 'success');
+            document.getElementById('linear-url').value = '';
+            document.getElementById('linear-detected').innerHTML = '';
+            document.getElementById('linear-h').value = '0';
+            document.getElementById('linear-m').value = '30';
+            await reloadDay(dayKey);
+            updateWeekTotal();
+        } catch (err) {
+            toast('Failed: ' + err.message, 'error');
         }
     }
 
