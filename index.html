@@ -2551,8 +2551,9 @@
             );
         });
 
-        // Flat union for prefix-map / Linear auto-detect (deduped)
-        quickTasks = [...new Map(quickTasksByGroup.flat().map(t => [t.id, t])).values()];
+        // ALL tasks from matched projects — used for Linear URL auto-detect & prefix map.
+        // Must NOT be limited to group keywords, so any task is detectable regardless of group.
+        quickTasks = allTasks;
 
         // Reset active tab if out of range
         if (activeQuickGroup >= groups.length) activeQuickGroup = 0;
