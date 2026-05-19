@@ -1993,8 +1993,10 @@
 
     // ─── Edit / Delete ────────────────────────────────────────────────────────
     function openEditRow(id, h, m, desc) {
+        const row = document.getElementById(`edit-${id}`);
+        const isOpen = row?.classList.contains('open');
         document.querySelectorAll('.edit-row.open').forEach(r => r.classList.remove('open'));
-        document.getElementById(`edit-${id}`)?.classList.add('open');
+        if (!isOpen) row?.classList.add('open');
     }
 
     function closeEditRow(id) {
