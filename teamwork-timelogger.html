@@ -3081,9 +3081,24 @@
     }
 
     // ─── Day summary modal ────────────────────────────────────────────────────
-    // Detects Linear ticket IDs (e.g. WOOA11Y-3, WOOACBK-120, SQUARE-45)
-    const LINEAR_RE = /\b([A-Z][A-Z0-9]+-\d+)\b/g;
-    const LINEAR_BASE = 'https://linear.app/a8c/issue/';
+    const LINEAR_RE      = /\b([A-Z][A-Z0-9]+-\d+)\b/g;
+    const LINEAR_URL_RE  = /https?:\/\/linear\.app\/[^\s/]+\/issue\/([A-Z][A-Z0-9]+-\d+)/g;
+    const LINEAR_BASE    = 'https://linear.app/a8c/issue/';
+
+    // Descriptions to always skip in the day summary (case-insensitive substring match)
+    const SUMMARY_IGNORED = [
+        'checking emails, slack messages, gh tickets',
+    ];
+
+    function isSummaryIgnored(desc) {
+        const lower = desc.toLowerCase();
+        return SUMMARY_IGNORED.some(phrase => lower.includes(phrase));
+    }
+
+    // Strip full Linear URLs down to just the ticket ID so the link renders short
+    function normaliseDesc(desc) {
+        return desc.replace(LINEAR_URL_RE, (_, ticket) => ticket).trim();
+    }
 
     function linkifyLinear(text) {
         return esc(text).replace(/\b([A-Z][A-Z0-9]+-\d+)\b/g,
@@ -3105,22 +3120,26 @@
         }
 
         // Build deduplicated bullet list — extract all Linear tickets + plain descriptions
-        const seen = new Set();
+        const seen  = new Set();
         const items = [];
 
         entries.forEach(e => {
-            const desc = (e.description || '').trim();
-            if (!desc) return;
+            const raw = (e.description || '').trim();
+            if (!raw) return;
+            if (isSummaryIgnored(raw)) return;  // skip ignored phrases
 
-            // Extract all ticket refs from this description
+            // Normalise: replace full Linear URLs with bare ticket IDs
+            const desc = normaliseDesc(raw);
+
+            // Extract all ticket refs
             const tickets = [...desc.matchAll(LINEAR_RE)].map(m => m[1]);
             if (tickets.length) {
                 tickets.forEach(tk => {
-                    if (!seen.has(tk)) { seen.add(tk); items.push({ type: 'ticket', ticket: tk, label: tk }); }
+                    if (!seen.has(tk)) { seen.add(tk); items.push({ type: 'ticket', ticket: tk }); }
                 });
-                // Also keep any non-ticket remainder text if substantial
+                // Keep substantial non-ticket remainder text
                 const remainder = desc.replace(LINEAR_RE, '').replace(/[-–—:\s]+$/, '').trim();
-                if (remainder && remainder.length > 3 && !seen.has(remainder)) {
+                if (remainder.length > 3 && !seen.has(remainder)) {
                     seen.add(remainder); items.push({ type: 'text', label: remainder });
                 }
             } else {
@@ -3130,15 +3149,14 @@
 
         const totalMins = entries.reduce((s, e) => s + entryMins(e), 0);
 
-        const listHtml = items.map(item => {
-            if (item.type === 'ticket') {
-                return `<li><a href="${LINEAR_BASE}${esc(item.ticket)}" target="_blank" rel="noopener">${esc(item.ticket)}</a></li>`;
-            }
-            return `<li>${linkifyLinear(item.label)}</li>`;
-        }).join('');
+        const listHtml = items.map(item =>
+            item.type === 'ticket'
+                ? `<li><a href="${LINEAR_BASE}${esc(item.ticket)}" target="_blank" rel="noopener">${esc(item.ticket)}</a></li>`
+                : `<li>${linkifyLinear(item.label)}</li>`
+        ).join('');
 
         document.getElementById('day-summary-body').innerHTML = `
-            <ul class="summary-list">${listHtml}</ul>
+            <ul class="summary-list">${listHtml || '<li style="color:var(--text-dimmer);">No logged items to show.</li>'}</ul>
             <div class="summary-total">Total: <strong>${fmtTime(totalMins)}</strong></div>`;
 
         document.getElementById('day-summary-modal').classList.add('open');
