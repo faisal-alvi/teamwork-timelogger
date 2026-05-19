@@ -434,7 +434,11 @@
             transition: box-shadow 0.15s;
         }
 
-        .day-block.is-today { border-color: var(--accent); }
+        .day-block.is-today {
+            border-color: var(--success);
+            background: #f0fdf8;
+            box-shadow: 0 0 0 3px rgba(16,185,129,0.10);
+        }
 
         .day-header {
             display: flex;
@@ -465,13 +469,14 @@
             font-size: 18px; font-weight: 800; line-height: 1.1;
         }
 
-        .day-block.is-today .day-name { color: var(--accent); }
-        .day-block.is-today .day-num { color: var(--accent); }
+        .day-block.is-today .day-name { color: var(--success); }
+        .day-block.is-today .day-num  { color: var(--success); }
+        .day-block.is-today .day-header { border-bottom-color: rgba(16,185,129,0.2); }
 
         .today-badge {
             display: none;
             font-size: 9px; font-weight: 800; text-transform: uppercase;
-            background: var(--accent); color: #fff;
+            background: var(--success); color: #fff;
             padding: 2px 7px; border-radius: 20px; letter-spacing: 0.4px;
         }
 
