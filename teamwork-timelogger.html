@@ -852,6 +852,18 @@
             color: var(--text-dimmer); font-size: 13px;
         }
 
+        /* Hide spinners on compact number inputs */
+        #linear-h, #linear-m {
+            -moz-appearance: textfield;
+        }
+        #linear-h::-webkit-inner-spin-button,
+        #linear-h::-webkit-outer-spin-button,
+        #linear-m::-webkit-inner-spin-button,
+        #linear-m::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
         /* ===== TOAST ===== */
         .toast {
             position: fixed; bottom: 20px; right: 20px;
@@ -953,9 +965,9 @@
                     <input type="date" id="linear-date"
                         style="flex:1;min-width:130px;padding:5px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);outline:none;cursor:pointer;"
                         onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-                    <input type="number" id="linear-h" value="0" min="0" max="23" style="width:52px;text-align:center;">
+                    <input type="number" id="linear-h" value="0" min="0" max="23" style="width:56px;text-align:center;">
                     <span style="font-size:12px;color:var(--text-dim);font-weight:600;">h</span>
-                    <input type="number" id="linear-m" value="30" min="0" max="59" step="15" style="width:52px;text-align:center;">
+                    <input type="number" id="linear-m" value="30" min="0" max="59" step="15" style="width:56px;text-align:center;">
                     <span style="font-size:12px;color:var(--text-dim);font-weight:600;">m</span>
                     <button class="btn btn-primary" onclick="logLinearTicket()" style="padding:6px 14px;font-size:12px;">Log</button>
                 </div>
