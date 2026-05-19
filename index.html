@@ -3126,9 +3126,20 @@
             return;
         }
 
-        // Build deduplicated list — extract all Linear tickets + plain descriptions
-        const seen  = new Set();
-        const rawTickets = [];
+        // First pass: collect full URLs keyed by ticket ID from raw descriptions
+        const ticketUrl = {};  // ticket → full original URL (with slug)
+        entries.forEach(e => {
+            const raw = (e.description || '').trim();
+            for (const m of raw.matchAll(new RegExp(LINEAR_URL_RE.source, 'g'))) {
+                const fullUrl = m[0];
+                const ticket  = m[1];
+                if (!ticketUrl[ticket]) ticketUrl[ticket] = fullUrl;
+            }
+        });
+
+        // Second pass: build deduplicated list
+        const seen       = new Set();
+        const rawTickets = [];  // array of ticket ID strings
         const rawTexts   = [];
 
         entries.forEach(e => {
@@ -3144,7 +3155,6 @@
                 found.forEach(tk => {
                     if (!seen.has(tk)) { seen.add(tk); rawTickets.push(tk); }
                 });
-                // Keep substantial non-ticket remainder
                 const remainder = desc.replace(LINEAR_RE, '').replace(/[-–—:\s]+$/, '').trim();
                 if (remainder.length > 3 && !seen.has(remainder)) {
                     seen.add(remainder); rawTexts.push(remainder);
@@ -3154,24 +3164,28 @@
             }
         });
 
-        // Sort tickets: alphabetically by prefix, then numerically by number
+        // Sort tickets: alphabetically by prefix, then numerically
         rawTickets.sort((a, b) => {
             const [, pA, nA = '0'] = a.match(/^([A-Z0-9]+)-(\d+)$/) || ['', a, '0'];
             const [, pB, nB = '0'] = b.match(/^([A-Z0-9]+)-(\d+)$/) || ['', b, '0'];
             return pA.localeCompare(pB) || parseInt(nA) - parseInt(nB);
         });
 
-        // Cache items for use by copyDaySummary (build from data, not DOM)
+        // Cache for copyDaySummary — include full URL (with slug) where available
         lastSummaryItems = [
-            ...rawTickets.map(tk  => ({ type: 'ticket', ticket: tk })),
-            ...rawTexts.map(label => ({ type: 'text',   label })),
+            ...rawTickets.map(tk => ({
+                type:   'ticket',
+                ticket: tk,
+                url:    ticketUrl[tk] || (LINEAR_BASE + tk),  // full URL with slug, or fallback
+            })),
+            ...rawTexts.map(label => ({ type: 'text', label })),
         ];
 
         const totalMins = entries.reduce((s, e) => s + entryMins(e), 0);
 
         const listHtml = lastSummaryItems.map(item =>
             item.type === 'ticket'
-                ? `<li><a href="${LINEAR_BASE}${esc(item.ticket)}" target="_blank" rel="noopener">${esc(item.ticket)}</a></li>`
+                ? `<li><a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.ticket)}</a></li>`
                 : `<li>${linkifyLinear(item.label)}</li>`
         ).join('');
 
@@ -3189,15 +3203,15 @@
     function copyDaySummary() {
         if (!lastSummaryItems || !lastSummaryItems.length) return;
 
-        // Build from data — guaranteed full URLs, not DOM-serialised HTML
+        // Build from data — use full URL with slug where available
         const htmlLines  = lastSummaryItems.map(item =>
             item.type === 'ticket'
-                ? `<li><a href="${LINEAR_BASE}${item.ticket}">${item.ticket}</a></li>`
+                ? `<li><a href="${item.url}">${item.ticket}</a></li>`
                 : `<li>${item.label}</li>`
         );
         const plainLines = lastSummaryItems.map(item =>
             item.type === 'ticket'
-                ? `• ${item.ticket}: ${LINEAR_BASE}${item.ticket}`
+                ? `• ${item.ticket}: ${item.url}`
                 : `• ${item.label}`
         );
 
