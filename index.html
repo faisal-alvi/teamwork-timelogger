@@ -457,7 +457,7 @@
         }
 
         .goal-name {
-            font-size: 12px;
+            font-size: var(--goal-fs);
             font-weight: 700;
             color: var(--text);
             white-space: nowrap;
@@ -466,7 +466,7 @@
         }
 
         .goal-nums {
-            font-size: 11px;
+            font-size: calc(var(--goal-fs) - 1px);
             color: var(--text-dim);
             font-weight: 600;
             white-space: nowrap;
@@ -494,40 +494,22 @@
         }
 
         .goal-pct-label {
-            font-size: 10px;
+            font-size: calc(var(--goal-fs) - 2px);
             font-weight: 700;
         }
 
         .goal-status-label {
-            font-size: 10px;
+            font-size: calc(var(--goal-fs) - 2px);
             color: var(--text-dimmer);
         }
 
         .goal-pace {
-            font-size: 10px;
+            font-size: calc(var(--goal-fs) - 2px);
             font-weight: 600;
             margin-top: 5px;
             padding-top: 5px;
             border-top: 1px dashed var(--border);
         }
-
-        /* UI scale — large */
-        body.ui-large .goal-name        { font-size: 14px; }
-        body.ui-large .goal-nums        { font-size: 13px; }
-        body.ui-large .goal-pct-label   { font-size: 12px; }
-        body.ui-large .goal-status-label{ font-size: 12px; }
-        body.ui-large .goal-pace        { font-size: 12px; }
-        body.ui-large .goal-bar-track   { height: 7px; }
-        body.ui-large .goal-card        { padding: 12px 15px 10px; }
-        body.ui-large .day-name         { font-size: 11px; }
-        body.ui-large .day-num          { font-size: 22px; }
-        body.ui-large .day-total-chip   { font-size: 13px; }
-        /* UI scale — small */
-        body.ui-small .goal-name        { font-size: 11px; }
-        body.ui-small .goal-nums        { font-size: 10px; }
-        body.ui-small .goal-pct-label   { font-size: 9px; }
-        body.ui-small .goal-status-label{ font-size: 9px; }
-        body.ui-small .goal-pace        { font-size: 9px; }
 
         /* Day block */
         .day-block {
@@ -1389,15 +1371,12 @@
 
             <div class="rule-row">
                 <div class="rule-label">
-                    Text size
-                    <div class="rule-desc">Scale for progress bar cards and day headers</div>
+                    Progress bar text size
+                    <div class="rule-desc">Base font size for goal cards (default 12). Smaller labels scale down 1–2px from this.</div>
                 </div>
                 <div class="rule-control">
-                    <select class="rule-input" id="rule-ui-scale" style="width:100px;">
-                        <option value="small">Small</option>
-                        <option value="normal">Normal</option>
-                        <option value="large">Large</option>
-                    </select>
+                    <input class="rule-input" type="number" id="rule-ui-font-size" min="9" max="20" step="1" style="width:60px;">
+                    <span style="font-size:12px;color:var(--text-dim);">px</span>
                 </div>
             </div>
         </div>
@@ -2902,8 +2881,8 @@
         document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
         document.getElementById('rule-project-filter').value   = rules.quickProjectFilter;
-        document.getElementById('rule-days-collapsed').checked = !!rules.daysCollapsedByDefault;
-        document.getElementById('rule-ui-scale').value         = rules.uiScale || 'normal';
+        document.getElementById('rule-days-collapsed').checked  = !!rules.daysCollapsedByDefault;
+        document.getElementById('rule-ui-font-size').value     = rules.uiFontSize ?? 12;
         renderGroupsUI();
         renderGoalsUI();
         renderPrefixMapSection();
@@ -3070,7 +3049,7 @@
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
         rules.quickProjectFilter      = document.getElementById('rule-project-filter').value.trim();
         rules.daysCollapsedByDefault  = document.getElementById('rule-days-collapsed').checked;
-        rules.uiScale                 = document.getElementById('rule-ui-scale').value || 'normal';
+        rules.uiFontSize              = Math.min(20, Math.max(9, parseInt(document.getElementById('rule-ui-font-size').value) || 12));
 
         // Read groups from the dynamic rows
         const groupRows = document.querySelectorAll('#qt-groups-rows .qt-group-row');
@@ -3513,7 +3492,7 @@
         extensionCapPct:         150,
         quickProjectFilter:      '',
         daysCollapsedByDefault:  false,
-        uiScale:                 'normal',
+        uiFontSize:              12,
         quickTaskGroups: [
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },
@@ -3550,10 +3529,8 @@
     }
 
     function applyUiScale() {
-        document.body.classList.remove('ui-small', 'ui-normal', 'ui-large');
-        if (rules.uiScale && rules.uiScale !== 'normal') {
-            document.body.classList.add('ui-' + rules.uiScale);
-        }
+        const fs = Math.min(20, Math.max(9, parseInt(rules.uiFontSize) || 12));
+        document.documentElement.style.setProperty('--goal-fs', fs + 'px');
     }
 
     function saveRules() {
