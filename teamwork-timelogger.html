@@ -1376,16 +1376,6 @@
 
             <div class="rule-row">
                 <div class="rule-label">
-                    Quick Log — default task
-                    <div class="rule-desc">Keyword matched against task name or list when no mapping exists for a pasted ticket (e.g. "Back End Engineering")</div>
-                </div>
-                <div class="rule-control">
-                    <input class="rule-input" type="text" id="rule-default-linear-task" style="width:160px;text-align:left;" placeholder="Back End Engineering">
-                </div>
-            </div>
-
-            <div class="rule-row">
-                <div class="rule-label">
                     Collapse day entries by default
                     <div class="rule-desc">Start with all day accordions collapsed (today always stays open)</div>
                 </div>
@@ -2682,21 +2672,23 @@
         // 2. Auto-detect: task list name or project name contains prefix (case-insensitive)
         //    Strict match only — no abbreviation guessing (too many false positives)
         const prefixLower = prefix.toLowerCase();
-        const prefixMatch = quickTasks.find(t => {
+        return quickTasks.find(t => {
             const listLower = (t['todo-list-name'] || '').toLowerCase();
             const projLower = (t['project-name']   || '').toLowerCase();
             return listLower.includes(prefixLower) || projLower.includes(prefixLower);
-        });
-        if (prefixMatch) return prefixMatch;
-
-        // 3. Fall back to the user's configured default task keyword
-        const defKw = (rules.defaultLinearTask || '').toLowerCase().trim();
-        if (!defKw) return null;
-        return quickTasks.find(t => {
-            const listLower = (t['todo-list-name'] || '').toLowerCase();
-            const nameLower = (t.content           || '').toLowerCase();
-            return listLower.includes(defKw) || nameLower.includes(defKw);
         }) || null;
+    }
+
+    // Tasks shown in the Linear picker — group tasks if groups configured, else all tasks
+    function linearPickerTasks() {
+        const grouped = (quickTasksByGroup || []).flat();
+        // Deduplicate by task id
+        const seen = new Set();
+        const deduped = grouped.filter(t => {
+            if (seen.has(t.id)) return false;
+            seen.add(t.id); return true;
+        });
+        return deduped.length ? deduped : quickTasks;
     }
 
     function onLinearUrlInput(val) {
@@ -2706,56 +2698,30 @@
 
         const task = findQuickTaskForTicket(ticketId);
         if (task) {
-            const list = esc(task['todo-list-name'] || '');
-            const proj = esc(task['project-name'] || '');
-
-            // Detect if this matched via the default fallback (not a saved mapping or prefix match)
-            const prefix = ticketId.split('-')[0].toUpperCase();
-            const map = getPrefixMap();
-            const hasSavedMapping = !!map[prefix];
-            const prefixLower = prefix.toLowerCase();
-            const isPrefixMatch = quickTasks.some(t => {
-                const l = (t['todo-list-name'] || '').toLowerCase();
-                const p = (t['project-name']   || '').toLowerCase();
-                return l.includes(prefixLower) || p.includes(prefixLower);
-            });
-            const isDefault = !hasSavedMapping && !isPrefixMatch;
-            const matchLabel = isDefault
-                ? `<span style="font-size:10px;color:var(--text-dimmer);background:var(--surface-2);
-                    padding:1px 6px;border-radius:4px;border:1px solid var(--border);">default task</span>`
-                : '';
-
-            const taskName = task.content || '';
-            // Build breadcrumb: project › list › task (omit duplicates)
-            const crumbParts = [task['project-name'], task['todo-list-name'], taskName]
+            // Matched via saved mapping or prefix auto-detect
+            const crumbParts = [task['project-name'], task['todo-list-name'], task.content]
                 .filter((v, i, a) => v && a.indexOf(v) === i);
             const crumb = crumbParts.map(esc).join(' › ');
-
-            const opts = quickTasks.map((t, i) => {
+            const opts = linearPickerTasks().map(t => {
                 const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
-                return `<option value="${i}">${esc(label)}</option>`;
+                return `<option value="${t.id}"${String(t.id)===String(task.id)?' selected':''}>${esc(label)}</option>`;
             }).join('');
             el.innerHTML = `
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                     <span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
                     <span style="color:var(--text-dim);">→ ${crumb}</span>
-                    ${matchLabel}
                     <a href="#" onclick="event.preventDefault();document.getElementById('linear-override-row').style.display='flex';this.style.display='none';"
-                        style="font-size:10px;color:var(--text-dimmer);text-decoration:underline;white-space:nowrap;">
-                        Change →</a>
+                        style="font-size:10px;color:var(--text-dimmer);text-decoration:underline;white-space:nowrap;">Change →</a>
                 </div>
                 <div id="linear-override-row" style="display:none;gap:5px;align-items:center;margin-top:5px;">
                     <select id="linear-map-select" style="flex:1;font-size:11px;padding:3px 5px;">
-                        <option value="">— choose task —</option>
-                        ${opts}
+                        <option value="">— choose task —</option>${opts}
                     </select>
                     <button onclick="saveLinearPrefixMapping('${esc(ticketId)}')"
-                        style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">
-                        Save
-                    </button>
+                        style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">Save</button>
                 </div>`;
         } else {
-            // No match — show task picker to save a mapping
+            // No saved mapping & no prefix match — ask user to pick and save one
             const prefix = ticketId.split('-')[0].toUpperCase();
 
             if (!quickTasks.length) {
@@ -2765,23 +2731,21 @@
                 return;
             }
 
-            const opts = quickTasks.map((t, i) => {
+            const picker = linearPickerTasks();
+            const opts = picker.map(t => {
                 const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
-                return `<option value="${i}">${esc(label)}</option>`;
+                return `<option value="${t.id}">${esc(label)}</option>`;
             }).join('');
             el.innerHTML = `
-                <div style="color:var(--text-dimmer);margin-bottom:5px;">
-                    No task for <b>${esc(prefix)}</b> — pick one to remember:
+                <div style="color:var(--text-dimmer);font-size:11px;margin-bottom:5px;">
+                    <b>${esc(prefix)}</b> — choose a task to log against:
                 </div>
                 <div style="display:flex;gap:5px;align-items:center;">
                     <select id="linear-map-select" style="flex:1;font-size:11px;padding:3px 5px;">
-                        <option value="">— choose task —</option>
-                        ${opts}
+                        <option value="">— choose task —</option>${opts}
                     </select>
                     <button onclick="saveLinearPrefixMapping('${esc(ticketId)}')"
-                        style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">
-                        Save
-                    </button>
+                        style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">Save</button>
                 </div>`;
         }
     }
@@ -2789,7 +2753,7 @@
     function saveLinearPrefixMapping(ticketId) {
         const sel = document.getElementById('linear-map-select');
         if (!sel || sel.value === '') { toast('Pick a task first', 'error'); return; }
-        const task = quickTasks[parseInt(sel.value)];
+        const task = quickTasks.find(t => String(t.id) === String(sel.value));
         if (!task) return;
         const prefix = ticketId.split('-')[0].toUpperCase();
         const label  = [task['project-name'], task['todo-list-name'], task.content].filter(Boolean).join(' › ');
@@ -2937,10 +2901,9 @@
         document.getElementById('rule-daily-target').value   = rules.dailyTargetHours;
         document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
-        document.getElementById('rule-project-filter').value         = rules.quickProjectFilter;
-        document.getElementById('rule-default-linear-task').value    = rules.defaultLinearTask || '';
-        document.getElementById('rule-days-collapsed').checked       = !!rules.daysCollapsedByDefault;
-        document.getElementById('rule-ui-scale').value               = rules.uiScale || 'normal';
+        document.getElementById('rule-project-filter').value   = rules.quickProjectFilter;
+        document.getElementById('rule-days-collapsed').checked = !!rules.daysCollapsedByDefault;
+        document.getElementById('rule-ui-scale').value         = rules.uiScale || 'normal';
         renderGroupsUI();
         renderGoalsUI();
         renderPrefixMapSection();
@@ -3105,10 +3068,9 @@
         rules.dailyTargetHours   = parseFloat(document.getElementById('rule-daily-target').value) || 8;
         rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value) || 9;
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
-        rules.quickProjectFilter       = document.getElementById('rule-project-filter').value.trim();
-        rules.defaultLinearTask        = document.getElementById('rule-default-linear-task').value.trim();
-        rules.daysCollapsedByDefault   = document.getElementById('rule-days-collapsed').checked;
-        rules.uiScale                  = document.getElementById('rule-ui-scale').value || 'normal';
+        rules.quickProjectFilter      = document.getElementById('rule-project-filter').value.trim();
+        rules.daysCollapsedByDefault  = document.getElementById('rule-days-collapsed').checked;
+        rules.uiScale                 = document.getElementById('rule-ui-scale').value || 'normal';
 
         // Read groups from the dynamic rows
         const groupRows = document.querySelectorAll('#qt-groups-rows .qt-group-row');
@@ -3550,7 +3512,6 @@
         dailyCapHours:           9,
         extensionCapPct:         150,
         quickProjectFilter:      '',
-        defaultLinearTask:       'Back End Engineering',
         daysCollapsedByDefault:  false,
         uiScale:                 'normal',
         quickTaskGroups: [
