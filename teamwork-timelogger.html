@@ -1479,6 +1479,7 @@
     let activeQuickGroup  = 0;            // index of currently visible tab
     let weekEntries      = {};              // key: 'YYYY-MM-DD' → array of entries
     let lastWeekEntries  = {};              // same structure, previous week (for day comparison)
+    let lastSummaryItems = [];              // items from last opened day summary (for copy)
 
     // ── Timer state ────────────────────────────────────────────────────────────
 
@@ -3125,46 +3126,54 @@
             return;
         }
 
-        // Build deduplicated bullet list — extract all Linear tickets + plain descriptions
+        // Build deduplicated list — extract all Linear tickets + plain descriptions
         const seen  = new Set();
-        const items = [];
+        const rawTickets = [];
+        const rawTexts   = [];
 
         entries.forEach(e => {
             const raw = (e.description || '').trim();
             if (!raw) return;
-            if (isSummaryIgnored(raw)) return;  // skip ignored phrases
+            if (isSummaryIgnored(raw)) return;
 
-            // Normalise: replace full Linear URLs with bare ticket IDs
             const desc = normaliseDesc(raw);
+            if (!desc) return;
 
-            // Extract all ticket refs
-            const tickets = [...desc.matchAll(LINEAR_RE)].map(m => m[1]);
-            if (tickets.length) {
-                tickets.forEach(tk => {
-                    if (!seen.has(tk)) { seen.add(tk); items.push({ type: 'ticket', ticket: tk }); }
+            const found = [...desc.matchAll(LINEAR_RE)].map(m => m[1]);
+            if (found.length) {
+                found.forEach(tk => {
+                    if (!seen.has(tk)) { seen.add(tk); rawTickets.push(tk); }
                 });
-                // Keep substantial non-ticket remainder text
+                // Keep substantial non-ticket remainder
                 const remainder = desc.replace(LINEAR_RE, '').replace(/[-–—:\s]+$/, '').trim();
                 if (remainder.length > 3 && !seen.has(remainder)) {
-                    seen.add(remainder); items.push({ type: 'text', label: remainder });
+                    seen.add(remainder); rawTexts.push(remainder);
                 }
             } else {
-                if (!seen.has(desc)) { seen.add(desc); items.push({ type: 'text', label: desc }); }
+                if (!seen.has(desc)) { seen.add(desc); rawTexts.push(desc); }
             }
         });
 
+        // Sort tickets: alphabetically by prefix, then numerically by number
+        rawTickets.sort((a, b) => {
+            const [, pA, nA = '0'] = a.match(/^([A-Z0-9]+)-(\d+)$/) || ['', a, '0'];
+            const [, pB, nB = '0'] = b.match(/^([A-Z0-9]+)-(\d+)$/) || ['', b, '0'];
+            return pA.localeCompare(pB) || parseInt(nA) - parseInt(nB);
+        });
+
+        // Cache items for use by copyDaySummary (build from data, not DOM)
+        lastSummaryItems = [
+            ...rawTickets.map(tk  => ({ type: 'ticket', ticket: tk })),
+            ...rawTexts.map(label => ({ type: 'text',   label })),
+        ];
+
         const totalMins = entries.reduce((s, e) => s + entryMins(e), 0);
 
-        // Sort: linked tickets first, plain text entries at the bottom; filter empty
-        const tickets = items.filter(i => i.type === 'ticket');
-        const texts   = items.filter(i => i.type === 'text' && (i.label || '').trim());
-
-        const renderItem = item =>
+        const listHtml = lastSummaryItems.map(item =>
             item.type === 'ticket'
                 ? `<li><a href="${LINEAR_BASE}${esc(item.ticket)}" target="_blank" rel="noopener">${esc(item.ticket)}</a></li>`
-                : `<li>${linkifyLinear(item.label)}</li>`;
-
-        const listHtml = [...tickets, ...texts].map(renderItem).join('');
+                : `<li>${linkifyLinear(item.label)}</li>`
+        ).join('');
 
         document.getElementById('day-summary-body').innerHTML = `
             <ul class="summary-list">${listHtml || '<li style="color:var(--text-dimmer);">No logged items to show.</li>'}</ul>
@@ -3178,27 +3187,31 @@
     }
 
     function copyDaySummary() {
-        const listEl = document.querySelector('#day-summary-body .summary-list');
-        if (!listEl) return;
+        if (!lastSummaryItems || !lastSummaryItems.length) return;
 
-        // Plain text: bullet + text only
-        const liEls = [...listEl.querySelectorAll('li')];
-        const plainText = liEls.map(li => '• ' + (li.textContent || '').trim()).filter(l => l !== '• ').join('\n');
+        // Build from data — guaranteed full URLs, not DOM-serialised HTML
+        const htmlLines  = lastSummaryItems.map(item =>
+            item.type === 'ticket'
+                ? `<li><a href="${LINEAR_BASE}${item.ticket}">${item.ticket}</a></li>`
+                : `<li>${item.label}</li>`
+        );
+        const plainLines = lastSummaryItems.map(item =>
+            item.type === 'ticket'
+                ? `• ${item.ticket}: ${LINEAR_BASE}${item.ticket}`
+                : `• ${item.label}`
+        );
 
-        // Rich HTML: preserve anchor tags so Slack / Notion get clickable links
-        const htmlText = `<ul>${liEls.map(li => `<li>${li.innerHTML}</li>`).join('')}</ul>`;
+        const htmlText  = `<ul>${htmlLines.join('')}</ul>`;
+        const plainText = plainLines.join('\n');
 
         try {
-            const htmlBlob  = new Blob([htmlText],  { type: 'text/html'  });
-            const plainBlob = new Blob([plainText], { type: 'text/plain' });
-            navigator.clipboard.write([new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': plainBlob })])
-                .then(() => toast('Summary copied with links!', 'success'))
-                .catch(() => {
-                    // Fallback to plain text if ClipboardItem not supported
-                    navigator.clipboard.writeText(plainText).then(() => toast('Summary copied!', 'success'));
-                });
+            navigator.clipboard.write([new ClipboardItem({
+                'text/html':  new Blob([htmlText],  { type: 'text/html'  }),
+                'text/plain': new Blob([plainText], { type: 'text/plain' }),
+            })]).then(() => toast('Copied with links!', 'success'))
+               .catch(() => navigator.clipboard.writeText(plainText).then(() => toast('Copied!', 'success')));
         } catch (_) {
-            navigator.clipboard?.writeText(plainText).then(() => toast('Summary copied!', 'success'));
+            navigator.clipboard?.writeText(plainText).then(() => toast('Copied!', 'success'));
         }
     }
 
