@@ -1951,7 +1951,7 @@
                 const pname = (e['project-name'] || '').toLowerCase();
                 goals.forEach(g => {
                     const kw = (g.name || '').toLowerCase().trim();
-                    if (kw && pname.includes(kw)) {
+                    if (kw && pname.startsWith(kw)) {
                         projMins[g.name] = (projMins[g.name] || 0) + entryMins(e);
                     }
                 });
