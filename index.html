@@ -2303,12 +2303,23 @@
             </button>`;
         }).join('');
 
+        // Colour palette — one per group, cycles if more than 4
+        const groupColors = [
+            { bg: '#eef1fd', text: '#4361ee' }, // blue
+            { bg: '#f3e8ff', text: '#7c3aed' }, // purple
+            { bg: '#fff7ed', text: '#ea580c' }, // orange
+            { bg: '#ecfdf5', text: '#059669' }, // green
+        ];
+
         // Render active group's tasks
         const tasks = quickTasksByGroup[activeQuickGroup] || [];
+        const group = groups[activeQuickGroup] || {};
+        const groupLabel = (group.label || group.keyword || '').trim();
+        const { bg, text: textCol } = groupColors[activeQuickGroup % groupColors.length];
+
         if (!tasks.length) {
-            const kw = groups[activeQuickGroup]?.keyword || '';
             list.innerHTML = `<div style="grid-column:1/-1;font-size:12px;color:var(--text-dimmer);padding:6px 0;">
-                No tasks matching "<b>${esc(kw)}</b>"</div>`;
+                No tasks matching "<b>${esc(group.keyword || '')}</b>"</div>`;
             return;
         }
 
@@ -2317,9 +2328,11 @@
             const listName = t['todo-list-name'] || '';
             return `<div class="qt-item" onclick="quickLogTask(${activeQuickGroup},${i})"
                 title="${esc(projName)}${listName ? ' › ' + esc(listName) : ''}">
+                <span style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;
+                    letter-spacing:0.4px;background:${bg};color:${textCol};
+                    padding:1px 6px;border-radius:4px;margin-bottom:4px;">${esc(groupLabel)}</span>
                 <div class="qt-proj">${esc(projName)}</div>
                 ${listName ? `<div class="qt-list">${esc(listName)}</div>` : ''}
-                <div class="qt-time">0:15</div>
             </div>`;
         }).join('');
     }
