@@ -2743,8 +2743,8 @@
         const list   = document.getElementById('quick-tasks-list');
         const groups = rules.quickTaskGroups || [];
 
-        const hasAny = quickTasksByGroup.some(g => g.length > 0);
-        if (!hasAny) { card.style.display = 'none'; return; }
+        // Show card whenever groups are configured; hide only if no groups at all
+        if (!groups.length) { card.style.display = 'none'; return; }
         card.style.display = 'block';
 
         // Render tabs
