@@ -1232,6 +1232,17 @@
 
             <div class="rule-row">
                 <div class="rule-label">
+                    Daily target
+                    <div class="rule-desc">Expected hours per working day (used for overall weekly pace)</div>
+                </div>
+                <div class="rule-control">
+                    <input class="rule-input" type="number" id="rule-daily-target" min="1" max="24" step="0.5">
+                    <span style="font-size:12px;color:var(--text-dim);">h</span>
+                </div>
+            </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
                     Daily cap
                     <div class="rule-desc">Max hours logged in a single day</div>
                 </div>
@@ -1963,8 +1974,65 @@
         const jsDay = new Date().getDay(); // 0=Sun,1=Mon…6=Sat
         // Mon→1, Tue→2, Wed→3, Thu→4, Fri-Sun→5
         const daysElapsed = jsDay === 0 ? 5 : Math.min(jsDay, 5);
+        const dayNames    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const todayLabel  = dayNames[jsDay] || 'today';
 
-        strip.innerHTML = goals.map(g => {
+        // ── Overall pace card ─────────────────────────────────────────────────
+        const totalLogged = Object.values(weekEntries).reduce((sum, entries) =>
+            sum + entries.reduce((s, e) => s + entryMins(e), 0), 0);
+        const dailyTarget      = (rules.dailyTargetHours || 8) * 60;
+        const overallExpected  = dailyTarget * daysElapsed;          // e.g. 8h × 3 = 24h in mins
+        const overallRemaining = Math.max(0, dailyTarget * 5 - totalLogged);  // left for full week
+        const overallDiff      = totalLogged - overallExpected;       // +ve ahead, -ve behind
+        const overallBarPct    = Math.min(Math.round(totalLogged / (dailyTarget * 5) * 100), 100);
+
+        let overallFill, overallPctColor;
+        if (totalLogged >= dailyTarget * 5)       { overallFill = 'var(--success)'; overallPctColor = '#059669'; }
+        else if (overallBarPct >= 80)             { overallFill = 'var(--accent)';  overallPctColor = 'var(--accent)'; }
+        else if (overallBarPct >= 50)             { overallFill = '#f59e0b';        overallPctColor = '#d97706'; }
+        else                                      { overallFill = 'var(--danger)';  overallPctColor = 'var(--danger)'; }
+
+        let overallPaceLine = '';
+        if (isCurrentWeek && totalLogged < dailyTarget * 5) {
+            const absDiffH = Math.abs(overallDiff / 60).toFixed(1);
+            if (Math.abs(overallDiff) < 6) {
+                overallPaceLine = `<span style="color:#059669;font-weight:700;">✓ On track</span>`;
+            } else if (overallDiff < 0) {
+                const col = Math.abs(overallDiff) > overallExpected * 0.25 ? 'var(--danger)' : '#d97706';
+                overallPaceLine = `<span style="color:${col};font-weight:700;">⚠ ${absDiffH}h behind for ${todayLabel}</span>`;
+            } else {
+                overallPaceLine = `<span style="color:#059669;font-weight:700;">↑ ${absDiffH}h ahead for ${todayLabel}</span>`;
+            }
+        }
+
+        const overallLoggedH  = (totalLogged / 60).toFixed(1);
+        const overallWeekTarget = (rules.dailyTargetHours || 8) * 5;
+        const overallExpectedH  = (overallExpected / 60).toFixed(1);
+        const overallRemainH    = (overallRemaining / 60).toFixed(1);
+        const weekMet = totalLogged >= dailyTarget * 5;
+
+        const overallCard = `<div style="width:100%;background:var(--surface);border:1.5px solid var(--border);
+            border-radius:10px;padding:11px 14px 9px;${weekMet ? 'border-color:var(--success);background:var(--success-light);' : ''}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin-bottom:7px;">
+                <span style="font-size:12px;font-weight:800;color:var(--text);">📊 Overall week</span>
+                <span style="font-size:11px;font-weight:600;color:var(--text-dim);">
+                    ${overallLoggedH}<span style="color:var(--text-dimmer);">/${overallWeekTarget}h</span>
+                </span>
+            </div>
+            <div style="height:5px;background:var(--surface-2);border-radius:10px;overflow:hidden;margin-bottom:5px;">
+                <div style="height:100%;width:${overallBarPct}%;background:${overallFill};border-radius:10px;transition:width 0.4s ease;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:10px;font-weight:700;color:${overallPctColor};">${overallBarPct}%</span>
+                <span style="font-size:10px;color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + 'h left this week'}</span>
+            </div>
+            ${isCurrentWeek ? `<div style="font-size:10px;font-weight:600;margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);">
+                Expected by ${todayLabel}: <strong>${overallExpectedH}h</strong>
+                &nbsp;·&nbsp;${overallPaceLine}
+            </div>` : ''}
+        </div>`;
+
+        strip.innerHTML = overallCard + goals.map(g => {
             const logged  = projMins[g.name] || 0;
             const target  = (g.targetHours || 0) * 60;
             const rawPct  = target > 0 ? (logged / target * 100) : 0;
@@ -1988,19 +2056,14 @@
             if (isCurrentWeek && !met && target > 0) {
                 const paceTarget = target * daysElapsed / 5;   // expected mins by today
                 const paceDiff   = logged - paceTarget;         // +ve = ahead, -ve = behind
-                const absDiffH   = Math.abs(paceDiff / 60).toFixed(1);
-                const dayNames   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                const dayLabel   = dayNames[jsDay] || 'today';
+                const absDiffH = Math.abs(paceDiff / 60).toFixed(1);
                 if (Math.abs(paceDiff) < 6) {
-                    // within 6 minutes → on track
-                    paceLine = `<div class="goal-pace" style="color:#059669;">✓ On track for ${dayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:#059669;">✓ On track for ${todayLabel}</div>`;
                 } else if (paceDiff < 0) {
-                    // behind
                     const color = Math.abs(paceDiff) > target * 0.2 ? 'var(--danger)' : '#d97706';
-                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH}h behind for ${dayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH}h behind for ${todayLabel}</div>`;
                 } else {
-                    // ahead
-                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH}h ahead for ${dayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH}h ahead for ${todayLabel}</div>`;
                 }
             }
 
@@ -2569,6 +2632,7 @@
         document.getElementById('settings-site').value       = config.site;
         document.getElementById('settings-apikey').value     = config.apiKey;
         document.getElementById('rule-rounding').value       = rules.roundingMins;
+        document.getElementById('rule-daily-target').value   = rules.dailyTargetHours;
         document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
         document.getElementById('rule-project-filter').value = rules.quickProjectFilter;
@@ -2733,6 +2797,7 @@
         localStorage.setItem('tw_config', JSON.stringify(config));
 
         rules.roundingMins       = parseInt(document.getElementById('rule-rounding').value)    || 5;
+        rules.dailyTargetHours   = parseFloat(document.getElementById('rule-daily-target').value) || 8;
         rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value) || 9;
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
         rules.quickProjectFilter = document.getElementById('rule-project-filter').value.trim();
@@ -2905,6 +2970,7 @@
     // ─── Configurable rules (persisted to localStorage) ──────────────────────
     let rules = {
         roundingMins:       5,
+        dailyTargetHours:   8,
         dailyCapHours:      9,
         extensionCapPct:    150,
         quickProjectFilter: 'WooCommerce',
