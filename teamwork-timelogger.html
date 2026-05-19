@@ -1697,6 +1697,8 @@
             breadcrumb = `<span class="bc-tasklist">${taskList}</span>`;
         }
 
+        const entryDayKey = entryDateKey(e);
+
         return `<div class="entry-row" id="er-${e.id}" style="cursor:pointer;" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}')">
             <div class="entry-info">
                 ${timeRange}
@@ -1712,6 +1714,12 @@
             </div>
         </div>
         <div class="edit-row" id="edit-${e.id}">
+            <div style="margin-bottom:8px;">
+                <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">DATE</label>
+                <input type="date" id="edate-${e.id}" value="${entryDayKey}"
+                    style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);outline:none;cursor:pointer;"
+                    onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            </div>
             <div class="edit-grid">
                 <div>
                     <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">HOURS</label>
@@ -1963,23 +1971,39 @@
     }
 
     async function saveEdit(id) {
-        const hours   = document.getElementById(`eh-${id}`).value;
-        const minutes = document.getElementById(`em-${id}`).value;
-        const desc    = document.getElementById(`ed-${id}`).value;
+        const hours      = document.getElementById(`eh-${id}`).value;
+        const minutes    = document.getElementById(`em-${id}`).value;
+        const desc       = document.getElementById(`ed-${id}`).value;
+        const newDayKey  = document.getElementById(`edate-${id}`)?.value || null; // YYYY-MM-DD
+
+        // Find which day currently holds this entry
+        let oldDayKey = null;
+        for (const [key, entries] of Object.entries(weekEntries)) {
+            if (entries.find(e => String(e.id) === String(id))) { oldDayKey = key; break; }
+        }
+
+        const dateChanged = newDayKey && oldDayKey && newDayKey !== oldDayKey;
+        const dateStr     = (newDayKey || oldDayKey || '').replace(/-/g, ''); // YYYYMMDD for API
 
         try {
             await apiPut(`/time_entries/${id}.json`, {
-                'time-entry': { hours, minutes, description: desc }
+                'time-entry': { hours, minutes, description: desc, date: dateStr }
             });
-            toast('Updated!', 'success');
+
+            if (dateChanged) {
+                toast(`Moved to ${new Date(newDayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} & updated`, 'success');
+            } else {
+                toast('Updated!', 'success');
+            }
             closeEditRow(id);
 
-            // Find which day this entry belongs to and reload
-            for (const [key, entries] of Object.entries(weekEntries)) {
-                if (entries.find(e => String(e.id) === String(id))) {
-                    await reloadDay(key); break;
-                }
-            }
+            // Reload old day — removes entry from there and fixes remaining times
+            if (oldDayKey) await reloadDay(oldDayKey);
+
+            // Reload new day if it's different — adds entry and fixes times there
+            if (dateChanged) await reloadDay(newDayKey);
+
+            updateWeekTotal();
         } catch (e) {
             toast('Update failed: ' + e.message, 'error');
         }
