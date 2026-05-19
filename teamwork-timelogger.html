@@ -424,6 +424,85 @@
             font-size: 12px; color: var(--text-dim); font-weight: 500;
         }
 
+        /* ── Project Goals Strip ── */
+        .goals-strip {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .goal-card {
+            flex: 1;
+            min-width: 140px;
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 13px 8px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .goal-card.goal-met {
+            border-color: var(--success);
+            background: var(--success-light);
+        }
+
+        .goal-card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 6px;
+            margin-bottom: 7px;
+        }
+
+        .goal-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .goal-nums {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-weight: 600;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .goal-bar-track {
+            height: 5px;
+            background: var(--surface-2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+
+        .goal-bar-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.4s ease, background 0.3s;
+        }
+
+        .goal-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .goal-pct-label {
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .goal-status-label {
+            font-size: 10px;
+            color: var(--text-dimmer);
+        }
+
         /* Day block */
         .day-block {
             background: var(--surface);
@@ -1101,6 +1180,9 @@
                 </div>
             </div>
 
+            <!-- Project goal progress cards -->
+            <div class="goals-strip" id="goals-strip"></div>
+
             <div id="week-days-container">
                 <!-- Day blocks rendered by JS -->
             </div>
@@ -1183,6 +1265,27 @@
                 <div class="rule-control">
                     <input class="rule-input" type="text" id="rule-project-filter" style="width:140px;text-align:left;" placeholder="WooCommerce">
                 </div>
+            </div>
+        </div>
+
+        <!-- Weekly Project Goals -->
+        <div class="rules-section">
+            <h3>Weekly Project Goals</h3>
+            <div class="rule-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div class="rule-label" style="margin:0;">
+                        Project targets
+                        <div class="rule-desc">Track minimum hours per project each week. Keyword matches project name.</div>
+                    </div>
+                    <button onclick="addGoalRow()" class="btn btn-ghost"
+                        style="padding:4px 10px;font-size:11px;flex-shrink:0;">+ Add</button>
+                </div>
+                <!-- column headers -->
+                <div style="display:grid;grid-template-columns:1fr 70px 14px 24px;gap:5px;padding:0 2px;">
+                    <div style="font-size:10px;color:var(--text-dimmer);font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Project keyword</div>
+                    <div style="font-size:10px;color:var(--text-dimmer);font-weight:700;text-transform:uppercase;letter-spacing:0.3px;text-align:center;">Target</div>
+                </div>
+                <div id="goal-rows" style="display:flex;flex-direction:column;gap:5px;"></div>
             </div>
         </div>
 
@@ -1822,6 +1925,67 @@
             entries.forEach(e => { total += entryMins(e); });
         });
         document.getElementById('week-total-num').textContent = fmtTime(total);
+        updateGoalProgress();
+    }
+
+    // ─── Project goal progress cards ──────────────────────────────────────────
+    function updateGoalProgress() {
+        const strip = document.getElementById('goals-strip');
+        if (!strip) return;
+        const goals = rules.projectGoals || [];
+        if (!goals.length) { strip.innerHTML = ''; return; }
+
+        // Tally minutes logged per goal (keyword match against project-name)
+        const projMins = {};
+        Object.values(weekEntries).forEach(entries => {
+            entries.forEach(e => {
+                const pname = (e['project-name'] || '').toLowerCase();
+                goals.forEach(g => {
+                    const kw = (g.name || '').toLowerCase().trim();
+                    if (kw && pname.includes(kw)) {
+                        projMins[g.name] = (projMins[g.name] || 0) + entryMins(e);
+                    }
+                });
+            });
+        });
+
+        strip.innerHTML = goals.map(g => {
+            const logged  = projMins[g.name] || 0;
+            const target  = (g.targetHours || 0) * 60;
+            const rawPct  = target > 0 ? (logged / target * 100) : 0;
+            const barPct  = Math.min(rawPct, 100);
+            const dispPct = Math.round(rawPct);
+            const met     = logged >= target && target > 0;
+            const remaining = Math.max(0, target - logged);
+
+            let fillColor, pctColor;
+            if (met)              { fillColor = 'var(--success)'; pctColor = '#059669'; }
+            else if (barPct >= 80){ fillColor = 'var(--accent)';  pctColor = 'var(--accent)'; }
+            else if (barPct >= 50){ fillColor = '#f59e0b';        pctColor = '#d97706'; }
+            else                  { fillColor = 'var(--danger)';  pctColor = 'var(--danger)'; }
+
+            const loggedH   = (logged / 60).toFixed(1);
+            const targetH   = g.targetHours;
+            const remainH   = (remaining / 60).toFixed(1);
+            const statusMsg = met
+                ? '✓ Goal met!'
+                : `${remainH}h to go`;
+
+            return `<div class="goal-card${met ? ' goal-met' : ''}"
+                title="${esc(g.name)}: ${loggedH}h logged of ${targetH}h target this week">
+                <div class="goal-card-top">
+                    <span class="goal-name">${esc(g.name)}</span>
+                    <span class="goal-nums">${loggedH}<span style="color:var(--text-dimmer);">/${targetH}h</span></span>
+                </div>
+                <div class="goal-bar-track">
+                    <div class="goal-bar-fill" style="width:${barPct}%;background:${fillColor};"></div>
+                </div>
+                <div class="goal-footer">
+                    <span class="goal-pct-label" style="color:${pctColor};">${dispPct}%</span>
+                    <span class="goal-status-label">${esc(statusMsg)}</span>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     // ─── Toggle day collapse ───────────────────────────────────────────────────
@@ -2373,6 +2537,7 @@
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
         document.getElementById('rule-project-filter').value = rules.quickProjectFilter;
         renderGroupsUI();
+        renderGoalsUI();
         renderPrefixMapSection();
         document.getElementById('settings-modal').classList.add('open');
     }
@@ -2408,6 +2573,42 @@
 
     function removeQuickTaskGroupRow(btn) {
         btn.closest('.qt-group-row')?.remove();
+    }
+
+    // ─── Project Goals Settings UI ────────────────────────────────────────────
+    function renderGoalsUI() {
+        const container = document.getElementById('goal-rows');
+        if (!container) return;
+        const goals = rules.projectGoals || [];
+        container.innerHTML = goals.map((g, i) => goalRowHTML(g.name, g.targetHours, i)).join('');
+    }
+
+    function goalRowHTML(name, hours, idx) {
+        return `<div class="goal-row" style="display:grid;grid-template-columns:1fr 70px 14px 24px;gap:5px;align-items:center;">
+            <input type="text" value="${esc(name || '')}" placeholder="e.g. WooCommerce"
+                style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            <input type="number" value="${hours || ''}" placeholder="25" min="1" max="200" step="1"
+                style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;text-align:center;"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            <span style="font-size:12px;color:var(--text-dim);font-weight:600;">h</span>
+            <button onclick="removeGoalRow(this)"
+                style="background:none;border:none;cursor:pointer;color:var(--text-dimmer);font-size:17px;line-height:1;padding:2px 4px;"
+                title="Remove">×</button>
+        </div>`;
+    }
+
+    function addGoalRow() {
+        const container = document.getElementById('goal-rows');
+        if (!container) return;
+        const div = document.createElement('div');
+        div.innerHTML = goalRowHTML('', '', container.children.length);
+        container.appendChild(div.firstElementChild);
+        container.lastElementChild?.querySelector('input')?.focus();
+    }
+
+    function removeGoalRow(btn) {
+        btn.closest('.goal-row')?.remove();
     }
 
     function renderPrefixMapSection() {
@@ -2512,6 +2713,16 @@
         if (!rules.quickTaskGroups.length) {
             rules.quickTaskGroups = [{ keyword: 'Back End Engineering', label: 'Back End' }];
         }
+
+        // Read project goals from dynamic rows
+        rules.projectGoals = [];
+        document.querySelectorAll('#goal-rows .goal-row').forEach(row => {
+            const inputs = row.querySelectorAll('input');
+            const name   = (inputs[0]?.value || '').trim();
+            const hours  = parseFloat(inputs[1]?.value) || 0;
+            if (name && hours > 0) rules.projectGoals.push({ name, targetHours: hours });
+        });
+
         saveRules();
 
         const rulesOnly = !document.getElementById('settings-site').value.trim() ||
@@ -2665,6 +2876,10 @@
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },
         ],
+        projectGoals: [
+            { name: 'WooCommerce', targetHours: 25 },
+            { name: 'Square',      targetHours: 15 },
+        ],
     };
 
     function loadRules() {
@@ -2680,6 +2895,12 @@
                 rules.quickTaskGroups = [
                     { keyword: 'Back End Engineering', label: 'Back End' },
                     { keyword: 'Internal Meeting',     label: 'Meetings'  },
+                ];
+            }
+            if (!rules.projectGoals) {
+                rules.projectGoals = [
+                    { name: 'WooCommerce', targetHours: 25 },
+                    { name: 'Square',      targetHours: 15 },
                 ];
             }
         } catch (_) {}
