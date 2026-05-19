@@ -503,6 +503,14 @@
             color: var(--text-dimmer);
         }
 
+        .goal-pace {
+            font-size: 10px;
+            font-weight: 600;
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px dashed var(--border);
+        }
+
         /* Day block */
         .day-block {
             background: var(--surface);
@@ -1950,6 +1958,12 @@
             });
         });
 
+        // Daily pace: how many working days have elapsed this week (Mon=1 … Fri=5)
+        const isCurrentWeek = weekStart.toDateString() === getMonday(new Date()).toDateString();
+        const jsDay = new Date().getDay(); // 0=Sun,1=Mon…6=Sat
+        // Mon→1, Tue→2, Wed→3, Thu→4, Fri-Sun→5
+        const daysElapsed = jsDay === 0 ? 5 : Math.min(jsDay, 5);
+
         strip.innerHTML = goals.map(g => {
             const logged  = projMins[g.name] || 0;
             const target  = (g.targetHours || 0) * 60;
@@ -1965,12 +1979,32 @@
             else if (barPct >= 50){ fillColor = '#f59e0b';        pctColor = '#d97706'; }
             else                  { fillColor = 'var(--danger)';  pctColor = 'var(--danger)'; }
 
-            const loggedH   = (logged / 60).toFixed(1);
-            const targetH   = g.targetHours;
-            const remainH   = (remaining / 60).toFixed(1);
-            const statusMsg = met
-                ? '✓ Goal met!'
-                : `${remainH}h to go`;
+            const loggedH = (logged / 60).toFixed(1);
+            const targetH = g.targetHours;
+            const remainH = (remaining / 60).toFixed(1);
+
+            // ── Pace line (only shown for current week, goal not yet met) ──
+            let paceLine = '';
+            if (isCurrentWeek && !met && target > 0) {
+                const paceTarget = target * daysElapsed / 5;   // expected mins by today
+                const paceDiff   = logged - paceTarget;         // +ve = ahead, -ve = behind
+                const absDiffH   = Math.abs(paceDiff / 60).toFixed(1);
+                const dayNames   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                const dayLabel   = dayNames[jsDay] || 'today';
+                if (Math.abs(paceDiff) < 6) {
+                    // within 6 minutes → on track
+                    paceLine = `<div class="goal-pace" style="color:#059669;">✓ On track for ${dayLabel}</div>`;
+                } else if (paceDiff < 0) {
+                    // behind
+                    const color = Math.abs(paceDiff) > target * 0.2 ? 'var(--danger)' : '#d97706';
+                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH}h behind for ${dayLabel}</div>`;
+                } else {
+                    // ahead
+                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH}h ahead for ${dayLabel}</div>`;
+                }
+            }
+
+            const statusMsg = met ? '✓ Goal met!' : `${remainH}h left`;
 
             return `<div class="goal-card${met ? ' goal-met' : ''}"
                 title="${esc(g.name)}: ${loggedH}h logged of ${targetH}h target this week">
@@ -1985,6 +2019,7 @@
                     <span class="goal-pct-label" style="color:${pctColor};">${dispPct}%</span>
                     <span class="goal-status-label">${esc(statusMsg)}</span>
                 </div>
+                ${paceLine}
             </div>`;
         }).join('');
     }
