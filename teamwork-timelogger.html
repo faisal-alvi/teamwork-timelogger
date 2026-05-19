@@ -1871,7 +1871,8 @@
                 <button class="del" title="Delete" onclick="event.stopPropagation();deleteEntry('${e.id}')">✕</button>
             </div>
         </div>
-        <div class="edit-row" id="edit-${e.id}">
+        <div class="edit-row" id="edit-${e.id}"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();saveEdit('${e.id}');}else if(event.key==='Escape'){closeEditRow('${e.id}');}">
             <input type="text" id="ed-${e.id}" value="${desc}" placeholder="Description…"
                 class="edit-field" style="width:100%;margin-bottom:8px;">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
