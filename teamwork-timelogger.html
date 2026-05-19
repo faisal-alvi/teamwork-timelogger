@@ -2621,14 +2621,12 @@
         }
 
         // 2. Auto-detect: task list name or project name contains prefix (case-insensitive)
+        //    Strict match only — no abbreviation guessing (too many false positives)
         const prefixLower = prefix.toLowerCase();
         return quickTasks.find(t => {
             const listLower = (t['todo-list-name'] || '').toLowerCase();
             const projLower = (t['project-name']   || '').toLowerCase();
-            if (listLower.includes(prefixLower) || projLower.includes(prefixLower)) return true;
-            // abbreviation: first 3 chars of each word in project name, joined
-            const abbrev = projLower.split(/\s+/).map(w => w.slice(0,3)).join('');
-            return abbrev.includes(prefixLower.slice(0,5)) || prefixLower.includes(abbrev.slice(0,5));
+            return listLower.includes(prefixLower) || projLower.includes(prefixLower);
         }) || null;
     }
 
@@ -2640,8 +2638,29 @@
         const task = findQuickTaskForTicket(ticketId);
         if (task) {
             const list = esc(task['todo-list-name'] || '');
-            el.innerHTML = `<span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
-                <span style="color:var(--text-dim);"> → ${list} › ${esc(task.content)}</span>`;
+            const proj = esc(task['project-name'] || '');
+            const opts = quickTasks.map((t, i) => {
+                const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
+                return `<option value="${i}">${esc(label)}</option>`;
+            }).join('');
+            el.innerHTML = `
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
+                    <span style="color:var(--text-dim);">→ ${proj} › ${list}</span>
+                    <button onclick="document.getElementById('linear-override-row').style.display='flex'"
+                        style="font-size:10px;padding:1px 7px;border-radius:4px;background:none;border:1px solid var(--border);
+                        color:var(--text-dimmer);cursor:pointer;white-space:nowrap;">Wrong? Change →</button>
+                </div>
+                <div id="linear-override-row" style="display:none;gap:5px;align-items:center;margin-top:5px;">
+                    <select id="linear-map-select" style="flex:1;font-size:11px;padding:3px 5px;">
+                        <option value="">— choose task —</option>
+                        ${opts}
+                    </select>
+                    <button onclick="saveLinearPrefixMapping('${esc(ticketId)}')"
+                        style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">
+                        Save
+                    </button>
+                </div>`;
         } else {
             // No match — show task picker to save a mapping
             const prefix = ticketId.split('-')[0].toUpperCase();
