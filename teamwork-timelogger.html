@@ -1986,11 +1986,18 @@
         const overallDiff      = totalLogged - overallExpected;       // +ve ahead, -ve behind
         const overallBarPct    = Math.min(Math.round(totalLogged / (dailyTarget * 5) * 100), 100);
 
+        // Danger threshold: less than 1h logged per day elapsed (barely anything)
+        const dangerThreshold = 60 * daysElapsed; // 1h per day elapsed, in mins
         let overallFill, overallPctColor;
-        if (totalLogged >= dailyTarget * 5)       { overallFill = 'var(--success)'; overallPctColor = '#059669'; }
-        else if (overallBarPct >= 80)             { overallFill = 'var(--accent)';  overallPctColor = 'var(--accent)'; }
-        else if (overallBarPct >= 50)             { overallFill = '#f59e0b';        overallPctColor = '#d97706'; }
-        else                                      { overallFill = 'var(--danger)';  overallPctColor = 'var(--danger)'; }
+        if (totalLogged >= dailyTarget * 5) {
+            overallFill = 'var(--success)'; overallPctColor = '#059669';
+        } else if (isCurrentWeek) {
+            if (totalLogged < dangerThreshold)         { overallFill = 'var(--danger)'; overallPctColor = 'var(--danger)'; }
+            else if (overallDiff < -dailyTarget * 0.5) { overallFill = '#f59e0b';       overallPctColor = '#d97706'; }
+            else                                       { overallFill = 'var(--accent)'; overallPctColor = 'var(--accent)'; }
+        } else {
+            overallFill = 'var(--accent)'; overallPctColor = 'var(--accent)';
+        }
 
         let overallPaceLine = '';
         if (isCurrentWeek && totalLogged < dailyTarget * 5) {
@@ -1998,7 +2005,7 @@
             if (Math.abs(overallDiff) < 6) {
                 overallPaceLine = `<span style="color:#059669;font-weight:700;">✓ On track</span>`;
             } else if (overallDiff < 0) {
-                const col = Math.abs(overallDiff) > overallExpected * 0.25 ? 'var(--danger)' : '#d97706';
+                const col = totalLogged < dangerThreshold ? 'var(--danger)' : '#d97706';
                 overallPaceLine = `<span style="color:${col};font-weight:700;">⚠ ${absDiffH}h behind for ${todayLabel}</span>`;
             } else {
                 overallPaceLine = `<span style="color:#059669;font-weight:700;">↑ ${absDiffH}h ahead for ${todayLabel}</span>`;
@@ -2041,11 +2048,22 @@
             const met     = logged >= target && target > 0;
             const remaining = Math.max(0, target - logged);
 
+            // Pace diff for this project
+            const projPaceTarget = target * daysElapsed / 5;
+            const projPaceDiff   = logged - projPaceTarget;
+            // Danger only when logged < 1h per day elapsed for this project
+            const projDangerThreshold = 60 * daysElapsed;
+
             let fillColor, pctColor;
-            if (met)              { fillColor = 'var(--success)'; pctColor = '#059669'; }
-            else if (barPct >= 80){ fillColor = 'var(--accent)';  pctColor = 'var(--accent)'; }
-            else if (barPct >= 50){ fillColor = '#f59e0b';        pctColor = '#d97706'; }
-            else                  { fillColor = 'var(--danger)';  pctColor = 'var(--danger)'; }
+            if (met) {
+                fillColor = 'var(--success)'; pctColor = '#059669';
+            } else if (isCurrentWeek) {
+                if (logged < projDangerThreshold)              { fillColor = 'var(--danger)'; pctColor = 'var(--danger)'; }
+                else if (projPaceDiff < -(target / 5) * 0.5)  { fillColor = '#f59e0b';       pctColor = '#d97706'; }
+                else                                           { fillColor = 'var(--accent)'; pctColor = 'var(--accent)'; }
+            } else {
+                fillColor = 'var(--accent)'; pctColor = 'var(--accent)';
+            }
 
             const loggedH = (logged / 60).toFixed(1);
             const targetH = g.targetHours;
@@ -2060,7 +2078,7 @@
                 if (Math.abs(paceDiff) < 6) {
                     paceLine = `<div class="goal-pace" style="color:#059669;">✓ On track for ${todayLabel}</div>`;
                 } else if (paceDiff < 0) {
-                    const color = Math.abs(paceDiff) > target * 0.2 ? 'var(--danger)' : '#d97706';
+                    const color = logged < projDangerThreshold ? 'var(--danger)' : '#d97706';
                     paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH}h behind for ${todayLabel}</div>`;
                 } else {
                     paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH}h ahead for ${todayLabel}</div>`;
