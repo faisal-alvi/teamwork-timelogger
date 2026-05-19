@@ -355,6 +355,19 @@
             padding: 14px 16px;
         }
 
+        .qt-tabs {
+            display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;
+        }
+        .qt-tab {
+            padding: 4px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.2px;
+            border: 1.5px solid var(--border);
+            background: var(--surface-2); color: var(--text-dim);
+            cursor: pointer; transition: all 0.15s; white-space: nowrap;
+        }
+        .qt-tab:hover { border-color: var(--accent); color: var(--accent); }
+        .qt-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
         .quick-tasks-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -670,8 +683,9 @@
 
         .modal {
             background: var(--surface); border-radius: 14px;
-            padding: 24px; max-width: 400px; width: 90%;
+            padding: 24px; max-width: 480px; width: 90%;
             box-shadow: var(--shadow-md);
+            max-height: calc(100vh - 80px); overflow-y: auto;
         }
 
         .modal h2 { font-size: 17px; margin-bottom: 18px; }
@@ -982,9 +996,9 @@
                     onkeydown="onProjectSearchKey(event)">
             </div>
 
-            <!-- Quick Tasks (Back End Engineering across sub-projects) -->
+            <!-- Quick Tasks (tab per keyword group) -->
             <div class="quick-tasks-card" id="quick-tasks-card" style="display:none;">
-                <div class="section-label" id="quick-tasks-label">Quick Tasks</div>
+                <div class="qt-tabs" id="qt-tabs"></div>
                 <div class="quick-tasks-grid" id="quick-tasks-list"></div>
             </div>
 
@@ -1124,23 +1138,26 @@
                 </div>
             </div>
 
-            <div class="rule-row">
-                <div class="rule-label">
-                    Quick Tasks — task name filter
-                    <div class="rule-desc">Task names containing this text appear in the Quick Tasks panel</div>
+            <!-- Quick Task Groups -->
+            <div class="rule-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div class="rule-label" style="margin:0;">
+                        Quick Task Groups
+                        <div class="rule-desc">Each group gets its own tab. Name = keyword to match task names.</div>
+                    </div>
+                    <button onclick="addQuickTaskGroupRow()" class="btn btn-ghost"
+                        style="padding:4px 10px;font-size:11px;flex-shrink:0;">+ Add</button>
                 </div>
-                <div class="rule-control">
-                    <input class="rule-input" type="text" id="rule-task-keyword" style="width:160px;text-align:left;" placeholder="Back End Engineering">
-                </div>
+                <div id="qt-groups-rows" style="display:flex;flex-direction:column;gap:5px;"></div>
             </div>
 
             <div class="rule-row">
                 <div class="rule-label">
-                    Quick Tasks — project name filter
-                    <div class="rule-desc">Only include projects whose name contains this text (leave blank for all)</div>
+                    Quick Tasks — project filter
+                    <div class="rule-desc">Only search projects whose name contains this (leave blank for all)</div>
                 </div>
                 <div class="rule-control">
-                    <input class="rule-input" type="text" id="rule-project-filter" style="width:160px;text-align:left;" placeholder="WooCommerce">
+                    <input class="rule-input" type="text" id="rule-project-filter" style="width:140px;text-align:left;" placeholder="WooCommerce">
                 </div>
             </div>
         </div>
@@ -1226,7 +1243,9 @@
     let targetDate   = new Date();          // the day we're logging INTO
     let projects     = [];
     let projectTasks = {};
-    let quickTasks   = [];                  // Back End Engineering tasks across projects
+    let quickTasks       = [];              // flat union of all groups (for prefix map / search)
+    let quickTasksByGroup = [];            // parallel array: one task[] per group
+    let activeQuickGroup  = 0;            // index of currently visible tab
     let weekEntries  = {};                  // key: 'YYYY-MM-DD' → array of entries
 
     // ─── Boot ─────────────────────────────────────────────────────────────────
@@ -2037,41 +2056,50 @@
     }
 
 
-    // ─── Quick Tasks (Back End Engineering across sub-projects) ───────────────
+    // ─── Quick Tasks (one tab per keyword group) ──────────────────────────────
     async function loadQuickTasks() {
-        const keyword = (rules.quickTaskKeyword || '').trim();
-        if (!keyword || !projects.length) return;
+        const groups = rules.quickTaskGroups || [];
+        if (!groups.length || !projects.length) return;
 
-        const keywordLower  = keyword.toLowerCase();
-        const projFilter    = (rules.quickProjectFilter || '').toLowerCase().trim();
-
-        // Filter to relevant projects first
+        const projFilter  = (rules.quickProjectFilter || '').toLowerCase().trim();
         const targetProjs = projFilter
             ? projects.filter(p => (p.name || '').toLowerCase().includes(projFilter))
             : projects;
-
         if (!targetProjs.length) return;
 
-        // Fetch tasks for each project in parallel, keep those matching the keyword
-        const seen   = new Set();
-        const found  = [];
-
+        // Fetch all matching tasks once across target projects
+        const seen = new Set();
+        const allTasks = [];
         await Promise.all(targetProjs.map(async p => {
             try {
                 const data  = await apiGet(`/projects/${p.id}/tasks.json?pageSize=250&includeCompletedTasks=false`);
-                const items = data['todo-items'] || [];
-                items.forEach(t => {
-                    const name = (t.content || '').toLowerCase();
-                    if (!name.includes(keywordLower)) return;
+                (data['todo-items'] || []).forEach(t => {
                     const key = `${p.id}|${t.id}`;
                     if (seen.has(key)) return;
                     seen.add(key);
-                    found.push({ ...t, 'project-id': p.id, 'project-name': p.name });
+                    allTasks.push({ ...t, 'project-id': p.id, 'project-name': p.name });
                 });
             } catch (_) {}
         }));
 
-        quickTasks = found;
+        // Split into per-group arrays
+        quickTasksByGroup = groups.map(g => {
+            const kw = (g.keyword || '').toLowerCase().trim();
+            if (!kw) return [];
+            return allTasks.filter(t => (t.content || '').toLowerCase().includes(kw));
+        });
+
+        // Flat union for prefix-map / Linear auto-detect (deduped)
+        quickTasks = [...new Map(quickTasksByGroup.flat().map(t => [t.id, t])).values()];
+
+        // Reset active tab if out of range
+        if (activeQuickGroup >= groups.length) activeQuickGroup = 0;
+
+        renderQuickTasks();
+    }
+
+    function switchQuickGroup(idx) {
+        activeQuickGroup = idx;
         renderQuickTasks();
     }
 
@@ -2227,19 +2255,39 @@
     }
 
     function renderQuickTasks() {
-        const card = document.getElementById('quick-tasks-card');
-        const list = document.getElementById('quick-tasks-list');
-        const label = document.getElementById('quick-tasks-label');
+        const card   = document.getElementById('quick-tasks-card');
+        const tabsEl = document.getElementById('qt-tabs');
+        const list   = document.getElementById('quick-tasks-list');
+        const groups = rules.quickTaskGroups || [];
 
-        if (!quickTasks.length) { card.style.display = 'none'; return; }
-
-        label.textContent = rules.quickTaskKeyword || 'Quick Tasks';
+        const hasAny = quickTasksByGroup.some(g => g.length > 0);
+        if (!hasAny) { card.style.display = 'none'; return; }
         card.style.display = 'block';
 
-        list.innerHTML = quickTasks.map((t, i) => {
+        // Render tabs
+        tabsEl.innerHTML = groups.map((g, i) => {
+            const label  = (g.label || g.keyword || `Group ${i + 1}`).trim();
+            const count  = quickTasksByGroup[i]?.length || 0;
+            const active = i === activeQuickGroup;
+            return `<button class="qt-tab${active ? ' active' : ''}" onclick="switchQuickGroup(${i})">
+                ${esc(label)}<span style="margin-left:4px;opacity:0.7;font-weight:400;">${count}</span>
+            </button>`;
+        }).join('');
+
+        // Render active group's tasks
+        const tasks = quickTasksByGroup[activeQuickGroup] || [];
+        if (!tasks.length) {
+            const kw = groups[activeQuickGroup]?.keyword || '';
+            list.innerHTML = `<div style="grid-column:1/-1;font-size:12px;color:var(--text-dimmer);padding:6px 0;">
+                No tasks matching "<b>${esc(kw)}</b>"</div>`;
+            return;
+        }
+
+        list.innerHTML = tasks.map((t, i) => {
             const projName = t['project-name'] || 'Unknown';
             const listName = t['todo-list-name'] || '';
-            return `<div class="qt-item" onclick="quickLogTask(${i})" title="${esc(projName)}${listName ? ' › ' + esc(listName) : ''}">
+            return `<div class="qt-item" onclick="quickLogTask(${activeQuickGroup},${i})"
+                title="${esc(projName)}${listName ? ' › ' + esc(listName) : ''}">
                 <div class="qt-proj">${esc(projName)}</div>
                 ${listName ? `<div class="qt-list">${esc(listName)}</div>` : ''}
                 <div class="qt-time">0:15</div>
@@ -2247,8 +2295,8 @@
         }).join('');
     }
 
-    function quickLogTask(index) {
-        const t = quickTasks[index];
+    function quickLogTask(groupIdx, taskIdx) {
+        const t = (quickTasksByGroup[groupIdx] || [])[taskIdx];
         if (!t) return;
 
         const sel = document.getElementById('project-select');
@@ -2275,15 +2323,48 @@
 
     // ─── Settings ─────────────────────────────────────────────────────────────
     function openSettings() {
-        document.getElementById('settings-site').value        = config.site;
-        document.getElementById('settings-apikey').value      = config.apiKey;
-        document.getElementById('rule-rounding').value        = rules.roundingMins;
-        document.getElementById('rule-daily-cap').value       = rules.dailyCapHours;
-        document.getElementById('rule-ext-cap').value         = rules.extensionCapPct;
-        document.getElementById('rule-task-keyword').value    = rules.quickTaskKeyword;
-        document.getElementById('rule-project-filter').value  = rules.quickProjectFilter;
+        document.getElementById('settings-site').value       = config.site;
+        document.getElementById('settings-apikey').value     = config.apiKey;
+        document.getElementById('rule-rounding').value       = rules.roundingMins;
+        document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
+        document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
+        document.getElementById('rule-project-filter').value = rules.quickProjectFilter;
+        renderGroupsUI();
         renderPrefixMapSection();
         document.getElementById('settings-modal').classList.add('open');
+    }
+
+    function renderGroupsUI() {
+        const container = document.getElementById('qt-groups-rows');
+        if (!container) return;
+        const groups = rules.quickTaskGroups || [];
+        container.innerHTML = groups.map((g, i) => groupRowHTML(g.keyword, g.label, i)).join('');
+    }
+
+    function groupRowHTML(keyword, label, idx) {
+        return `<div class="qt-group-row" style="display:flex;gap:5px;align-items:center;">
+            <input type="text" value="${esc(keyword || '')}" placeholder="Task keyword…"
+                style="flex:2;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            <input type="text" value="${esc(label || '')}" placeholder="Tab label"
+                style="flex:1;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            <button onclick="removeQuickTaskGroupRow(this)"
+                style="background:none;border:none;cursor:pointer;color:var(--text-dimmer);font-size:17px;line-height:1;padding:2px 4px;flex-shrink:0;"
+                title="Remove group">×</button>
+        </div>`;
+    }
+
+    function addQuickTaskGroupRow() {
+        const container = document.getElementById('qt-groups-rows');
+        if (!container) return;
+        const div = document.createElement('div');
+        div.innerHTML = groupRowHTML('', '', container.children.length);
+        container.appendChild(div.firstElementChild);
+    }
+
+    function removeQuickTaskGroupRow(btn) {
+        btn.closest('.qt-group-row')?.remove();
     }
 
     function renderPrefixMapSection() {
@@ -2371,11 +2452,23 @@
         config.userId = '';
         localStorage.setItem('tw_config', JSON.stringify(config));
 
-        rules.roundingMins       = parseInt(document.getElementById('rule-rounding').value)       || 5;
-        rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value)    || 9;
-        rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)        || 150;
-        rules.quickTaskKeyword   = document.getElementById('rule-task-keyword').value.trim()   || 'Back End Engineering';
+        rules.roundingMins       = parseInt(document.getElementById('rule-rounding').value)    || 5;
+        rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value) || 9;
+        rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
         rules.quickProjectFilter = document.getElementById('rule-project-filter').value.trim();
+
+        // Read groups from the dynamic rows
+        const groupRows = document.querySelectorAll('#qt-groups-rows .qt-group-row');
+        rules.quickTaskGroups = [];
+        groupRows.forEach(row => {
+            const inputs  = row.querySelectorAll('input');
+            const keyword = (inputs[0]?.value || '').trim();
+            const label   = (inputs[1]?.value || '').trim();
+            if (keyword) rules.quickTaskGroups.push({ keyword, label });
+        });
+        if (!rules.quickTaskGroups.length) {
+            rules.quickTaskGroups = [{ keyword: 'Back End Engineering', label: 'Back End' }];
+        }
         saveRules();
 
         const rulesOnly = !document.getElementById('settings-site').value.trim() ||
@@ -2524,14 +2617,28 @@
         roundingMins:       5,
         dailyCapHours:      9,
         extensionCapPct:    150,
-        quickTaskKeyword:   'Back End Engineering',
         quickProjectFilter: 'WooCommerce',
+        quickTaskGroups: [
+            { keyword: 'Back End Engineering', label: 'Back End' },
+            { keyword: 'Internal Meeting',     label: 'Meetings'  },
+        ],
     };
 
     function loadRules() {
         try {
             const saved = JSON.parse(localStorage.getItem('tw_rules') || '{}');
             Object.assign(rules, saved);
+            // Migrate old single-keyword format to groups array
+            if (!rules.quickTaskGroups && rules.quickTaskKeyword) {
+                rules.quickTaskGroups = [{ keyword: rules.quickTaskKeyword, label: '' }];
+                delete rules.quickTaskKeyword;
+            }
+            if (!rules.quickTaskGroups || !rules.quickTaskGroups.length) {
+                rules.quickTaskGroups = [
+                    { keyword: 'Back End Engineering', label: 'Back End' },
+                    { keyword: 'Internal Meeting',     label: 'Meetings'  },
+                ];
+            }
         } catch (_) {}
     }
 
