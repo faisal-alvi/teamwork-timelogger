@@ -1376,8 +1376,8 @@
 
             <div class="rule-row">
                 <div class="rule-label">
-                    Default task (Linear fallback)
-                    <div class="rule-desc">Task list keyword used when no prefix mapping matches a pasted ticket</div>
+                    Quick Log — default task
+                    <div class="rule-desc">Keyword matched against task name or list when no mapping exists for a pasted ticket (e.g. "Back End Engineering")</div>
                 </div>
                 <div class="rule-control">
                     <input class="rule-input" type="text" id="rule-default-linear-task" style="width:160px;text-align:left;" placeholder="Back End Engineering">
@@ -2725,6 +2725,12 @@
                     padding:1px 6px;border-radius:4px;border:1px solid var(--border);">default task</span>`
                 : '';
 
+            const taskName = task.content || '';
+            // Build breadcrumb: project › list › task (omit duplicates)
+            const crumbParts = [task['project-name'], task['todo-list-name'], taskName]
+                .filter((v, i, a) => v && a.indexOf(v) === i);
+            const crumb = crumbParts.map(esc).join(' › ');
+
             const opts = quickTasks.map((t, i) => {
                 const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
                 return `<option value="${i}">${esc(label)}</option>`;
@@ -2732,11 +2738,11 @@
             el.innerHTML = `
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                     <span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
-                    <span style="color:var(--text-dim);">→ ${proj} › ${list}</span>
+                    <span style="color:var(--text-dim);">→ ${crumb}</span>
                     ${matchLabel}
-                    <button onclick="document.getElementById('linear-override-row').style.display='flex'"
-                        style="font-size:10px;padding:1px 7px;border-radius:4px;background:none;border:1px solid var(--border);
-                        color:var(--text-dimmer);cursor:pointer;white-space:nowrap;">Wrong? Change →</button>
+                    <a href="#" onclick="event.preventDefault();document.getElementById('linear-override-row').style.display='flex';this.style.display='none';"
+                        style="font-size:10px;color:var(--text-dimmer);text-decoration:underline;white-space:nowrap;">
+                        Change →</a>
                 </div>
                 <div id="linear-override-row" style="display:none;gap:5px;align-items:center;margin-top:5px;">
                     <select id="linear-map-select" style="flex:1;font-size:11px;padding:3px 5px;">
