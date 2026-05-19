@@ -3082,7 +3082,8 @@
 
     // ─── Day summary modal ────────────────────────────────────────────────────
     const LINEAR_RE      = /\b([A-Z][A-Z0-9]+-\d+)\b/g;
-    const LINEAR_URL_RE  = /https?:\/\/linear\.app\/[^\s/]+\/issue\/([A-Z][A-Z0-9]+-\d+)/g;
+    // Consume the full URL including optional trailing slug (/some-slug-title)
+    const LINEAR_URL_RE  = /https?:\/\/linear\.app\/[^\s/]+\/issue\/([A-Z][A-Z0-9]+-\d+)(?:\/[^\s]*)?/g;
     const LINEAR_BASE    = 'https://linear.app/a8c/issue/';
 
     // Descriptions to always skip in the day summary (case-insensitive substring match)
@@ -3095,11 +3096,12 @@
         return SUMMARY_IGNORED.some(phrase => lower.includes(phrase));
     }
 
-    // Strip full Linear URLs down to just the ticket ID; remove any remaining URLs entirely
+    // Strip full Linear URLs down to just the ticket ID; remove any remaining URLs or slugs
     function normaliseDesc(desc) {
         return desc
             .replace(LINEAR_URL_RE, (_, ticket) => ticket)  // known Linear URLs → ticket ID
-            .replace(/https?:\/\/\S+/g, '')                  // all other URLs → gone
+            .replace(/https?:\/\/\S+/g, '')                  // all other https URLs → gone
+            .replace(/(?<!\w)\/[a-z][a-z0-9-]+(?:\/[a-z0-9-]+)*/g, '')  // slug remnants like /some-slug-title
             .replace(/\s{2,}/g, ' ')
             .trim();
     }
@@ -3153,11 +3155,16 @@
 
         const totalMins = entries.reduce((s, e) => s + entryMins(e), 0);
 
-        const listHtml = items.map(item =>
+        // Sort: linked tickets first, plain text entries at the bottom; filter empty
+        const tickets = items.filter(i => i.type === 'ticket');
+        const texts   = items.filter(i => i.type === 'text' && (i.label || '').trim());
+
+        const renderItem = item =>
             item.type === 'ticket'
                 ? `<li><a href="${LINEAR_BASE}${esc(item.ticket)}" target="_blank" rel="noopener">${esc(item.ticket)}</a></li>`
-                : `<li>${linkifyLinear(item.label)}</li>`
-        ).join('');
+                : `<li>${linkifyLinear(item.label)}</li>`;
+
+        const listHtml = [...tickets, ...texts].map(renderItem).join('');
 
         document.getElementById('day-summary-body').innerHTML = `
             <ul class="summary-list">${listHtml || '<li style="color:var(--text-dimmer);">No logged items to show.</li>'}</ul>
@@ -3171,9 +3178,28 @@
     }
 
     function copyDaySummary() {
-        const items = document.querySelectorAll('#day-summary-body .summary-list li');
-        const lines = [...items].map(li => '• ' + (li.textContent || '').trim()).join('\n');
-        navigator.clipboard?.writeText(lines).then(() => toast('Summary copied!', 'success'));
+        const listEl = document.querySelector('#day-summary-body .summary-list');
+        if (!listEl) return;
+
+        // Plain text: bullet + text only
+        const liEls = [...listEl.querySelectorAll('li')];
+        const plainText = liEls.map(li => '• ' + (li.textContent || '').trim()).filter(l => l !== '• ').join('\n');
+
+        // Rich HTML: preserve anchor tags so Slack / Notion get clickable links
+        const htmlText = `<ul>${liEls.map(li => `<li>${li.innerHTML}</li>`).join('')}</ul>`;
+
+        try {
+            const htmlBlob  = new Blob([htmlText],  { type: 'text/html'  });
+            const plainBlob = new Blob([plainText], { type: 'text/plain' });
+            navigator.clipboard.write([new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': plainBlob })])
+                .then(() => toast('Summary copied with links!', 'success'))
+                .catch(() => {
+                    // Fallback to plain text if ClipboardItem not supported
+                    navigator.clipboard.writeText(plainText).then(() => toast('Summary copied!', 'success'));
+                });
+        } catch (_) {
+            navigator.clipboard?.writeText(plainText).then(() => toast('Summary copied!', 'success'));
+        }
     }
 
     // ─── 7 PM end-of-day notification ─────────────────────────────────────────
