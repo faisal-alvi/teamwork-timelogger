@@ -2043,7 +2043,13 @@
 
         const entryDayKey = entryDateKey(e);
 
-        return `<div class="entry-row" id="er-${e.id}" style="cursor:pointer;" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}')">
+        const entryProjId = e['project-id'] || '';
+        const entryTaskId = e['todo-item-id'] || '';
+        const projOpts = projects.map(p =>
+            `<option value="${p.id}"${String(p.id)===String(entryProjId)?' selected':''}>${esc(p.name)}</option>`
+        ).join('');
+
+        return `<div class="entry-row" id="er-${e.id}" style="cursor:pointer;" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}','${entryProjId}','${entryTaskId}')">
             <div class="entry-info">
                 ${timeRange}
                 ${breadcrumb ? `<div class="entry-breadcrumb">${breadcrumb}</div>` : ''}
@@ -2062,6 +2068,16 @@
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();saveEdit('${e.id}');}else if(event.key==='Escape'){closeEditRow('${e.id}');}">
             <input type="text" id="ed-${e.id}" value="${desc}" placeholder="Description…"
                 class="edit-field" style="width:100%;margin-bottom:8px;">
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+                <select id="eproj-${e.id}" class="edit-field" style="flex:1;"
+                    onchange="loadEditTasksForEntry('${e.id}', this.value, '')">
+                    <option value="">— project —</option>
+                    ${projOpts}
+                </select>
+                <select id="etask-${e.id}" class="edit-field" style="flex:1;">
+                    <option value="">No task</option>
+                </select>
+            </div>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <input type="date" id="edate-${e.id}" value="${entryDayKey}"
                     class="edit-field" style="cursor:pointer;">
@@ -2466,7 +2482,7 @@
     }
 
     // ─── Edit / Delete ────────────────────────────────────────────────────────
-    function openEditRow(id, h, m, desc) {
+    function openEditRow(id, h, m, desc, projId, taskId) {
         const row    = document.getElementById(`edit-${id}`);
         const isOpen = row?.classList.contains('open');
         // Close all open rows and remove highlights
@@ -2475,7 +2491,27 @@
         if (!isOpen) {
             row?.classList.add('open');
             document.getElementById(`er-${id}`)?.classList.add('is-editing');
+            // Load tasks for the current project so the task select is pre-populated
+            if (projId) loadEditTasksForEntry(id, projId, taskId);
         }
+    }
+
+    async function loadEditTasksForEntry(id, projId, selectedTaskId) {
+        const sel = document.getElementById(`etask-${id}`);
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Loading…</option>';
+        sel.disabled = true;
+        try {
+            const data = await apiGet(`/projects/${projId}/tasks.json?pageSize=250&includeCompletedTasks=false`);
+            const tasks = data['todo-items'] || [];
+            sel.innerHTML = '<option value="">No task</option>' +
+                tasks.map(t =>
+                    `<option value="${t.id}"${String(t.id)===String(selectedTaskId)?' selected':''}>${esc(t['todo-list-name'] ? t['todo-list-name'] + ' › ' + t.content : t.content)}</option>`
+                ).join('');
+        } catch (_) {
+            sel.innerHTML = '<option value="">Failed to load</option>';
+        }
+        sel.disabled = false;
     }
 
     function closeEditRow(id) {
@@ -2487,35 +2523,55 @@
         const hours      = document.getElementById(`eh-${id}`).value;
         const minutes    = document.getElementById(`em-${id}`).value;
         const desc       = document.getElementById(`ed-${id}`).value;
-        const newDayKey  = document.getElementById(`edate-${id}`)?.value || null; // YYYY-MM-DD
+        const newDayKey  = document.getElementById(`edate-${id}`)?.value || null;
+        const newProjId  = document.getElementById(`eproj-${id}`)?.value || '';
+        const newTaskId  = document.getElementById(`etask-${id}`)?.value || '';
 
-        // Find which day currently holds this entry
+        // Find the original entry to compare project/task
         let oldDayKey = null;
+        let origEntry = null;
         for (const [key, entries] of Object.entries(weekEntries)) {
-            if (entries.find(e => String(e.id) === String(id))) { oldDayKey = key; break; }
+            origEntry = entries.find(e => String(e.id) === String(id));
+            if (origEntry) { oldDayKey = key; break; }
         }
 
-        const dateChanged = newDayKey && oldDayKey && newDayKey !== oldDayKey;
-        const dateStr     = (newDayKey || oldDayKey || '').replace(/-/g, ''); // YYYYMMDD for API
+        const dateChanged    = newDayKey && oldDayKey && newDayKey !== oldDayKey;
+        const dateStr        = (newDayKey || oldDayKey || '').replace(/-/g, '');
+        const origProjId     = String(origEntry?.['project-id'] || '');
+        const origTaskId     = String(origEntry?.['todo-item-id'] || '');
+        const taskChanged    = newProjId && (newProjId !== origProjId || newTaskId !== origTaskId);
 
         try {
-            await apiPut(`/time_entries/${id}.json`, {
-                'time-entry': { hours, minutes, description: desc, date: dateStr }
-            });
-
-            if (dateChanged) {
-                toast(`Moved to ${new Date(newDayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} & updated`, 'success');
+            if (taskChanged) {
+                // Teamwork API doesn't support moving a time entry to a different task via PUT.
+                // Delete the old entry and create a new one on the new task/project.
+                await apiDelete(`/time_entries/${id}.json`);
+                const path = newTaskId
+                    ? `/tasks/${newTaskId}/time_entries.json`
+                    : `/projects/${newProjId}/time_entries.json`;
+                await apiPost(path, {
+                    'time-entry': {
+                        description: desc, date: dateStr,
+                        hours: String(hours), minutes: String(minutes),
+                        isbillable: '1',
+                        time: origEntry?.time || '09:00'
+                    }
+                });
+                toast('Moved to new task & updated', 'success');
             } else {
-                toast('Updated!', 'success');
+                await apiPut(`/time_entries/${id}.json`, {
+                    'time-entry': { hours, minutes, description: desc, date: dateStr }
+                });
+                if (dateChanged) {
+                    toast(`Moved to ${new Date(newDayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} & updated`, 'success');
+                } else {
+                    toast('Updated!', 'success');
+                }
             }
+
             closeEditRow(id);
-
-            // Reload old day — removes entry from there and fixes remaining times
             if (oldDayKey) await reloadDay(oldDayKey);
-
-            // Reload new day if it's different — adds entry and fixes times there
-            if (dateChanged) await reloadDay(newDayKey);
-
+            if (dateChanged && newDayKey) await reloadDay(newDayKey);
             updateWeekTotal();
         } catch (e) {
             toast('Update failed: ' + e.message, 'error');
