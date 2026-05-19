@@ -511,6 +511,24 @@
             border-top: 1px dashed var(--border);
         }
 
+        /* UI scale — large */
+        body.ui-large .goal-name        { font-size: 14px; }
+        body.ui-large .goal-nums        { font-size: 13px; }
+        body.ui-large .goal-pct-label   { font-size: 12px; }
+        body.ui-large .goal-status-label{ font-size: 12px; }
+        body.ui-large .goal-pace        { font-size: 12px; }
+        body.ui-large .goal-bar-track   { height: 7px; }
+        body.ui-large .goal-card        { padding: 12px 15px 10px; }
+        body.ui-large .day-name         { font-size: 11px; }
+        body.ui-large .day-num          { font-size: 22px; }
+        body.ui-large .day-total-chip   { font-size: 13px; }
+        /* UI scale — small */
+        body.ui-small .goal-name        { font-size: 11px; }
+        body.ui-small .goal-nums        { font-size: 10px; }
+        body.ui-small .goal-pct-label   { font-size: 9px; }
+        body.ui-small .goal-status-label{ font-size: 9px; }
+        body.ui-small .goal-pace        { font-size: 9px; }
+
         /* Day block */
         .day-block {
             background: var(--surface);
@@ -738,7 +756,7 @@
         .entry-search-wrap input:focus { border-color: var(--accent); }
 
         .entry-search-wrap .search-icon {
-            position: absolute; left: 9px; top: 0; bottom: 0;
+            position: absolute; left: 9px; top: 0; bottom: 12px;
             display: flex; align-items: center;
             color: var(--text-dimmer); pointer-events: none;
         }
@@ -1355,6 +1373,43 @@
                     <input class="rule-input" type="text" id="rule-project-filter" style="width:140px;text-align:left;" placeholder="WooCommerce">
                 </div>
             </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
+                    Default task (Linear fallback)
+                    <div class="rule-desc">Task list keyword used when no prefix mapping matches a pasted ticket</div>
+                </div>
+                <div class="rule-control">
+                    <input class="rule-input" type="text" id="rule-default-linear-task" style="width:160px;text-align:left;" placeholder="Back End Engineering">
+                </div>
+            </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
+                    Collapse day entries by default
+                    <div class="rule-desc">Start with all day accordions collapsed (today always stays open)</div>
+                </div>
+                <div class="rule-control">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+                        <input type="checkbox" id="rule-days-collapsed" style="width:14px;height:14px;cursor:pointer;">
+                        Collapsed
+                    </label>
+                </div>
+            </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
+                    Text size
+                    <div class="rule-desc">Scale for progress bar cards and day headers</div>
+                </div>
+                <div class="rule-control">
+                    <select class="rule-input" id="rule-ui-scale" style="width:100px;">
+                        <option value="small">Small</option>
+                        <option value="normal">Normal</option>
+                        <option value="large">Large</option>
+                    </select>
+                </div>
+            </div>
         </div>
 
         <!-- Weekly Project Goals -->
@@ -1879,7 +1934,8 @@
             const isToday = isSameDay(d, today);
             const isTarget = isSameDay(d, targetDate);
 
-            html += `<div class="day-block loading ${isToday ? 'is-today' : ''}" data-key="${key}" data-index="${i}">
+            const initCollapsed = rules.daysCollapsedByDefault && !isToday ? ' collapsed' : '';
+            html += `<div class="day-block loading ${isToday ? 'is-today' : ''}${initCollapsed}" data-key="${key}" data-index="${i}">
                 <div class="day-header" onclick="toggleDay('${key}', event)">
                     <div class="day-header-left">
                         <div class="day-name-num">
@@ -2626,10 +2682,20 @@
         // 2. Auto-detect: task list name or project name contains prefix (case-insensitive)
         //    Strict match only — no abbreviation guessing (too many false positives)
         const prefixLower = prefix.toLowerCase();
-        return quickTasks.find(t => {
+        const prefixMatch = quickTasks.find(t => {
             const listLower = (t['todo-list-name'] || '').toLowerCase();
             const projLower = (t['project-name']   || '').toLowerCase();
             return listLower.includes(prefixLower) || projLower.includes(prefixLower);
+        });
+        if (prefixMatch) return prefixMatch;
+
+        // 3. Fall back to the user's configured default task keyword
+        const defKw = (rules.defaultLinearTask || '').toLowerCase().trim();
+        if (!defKw) return null;
+        return quickTasks.find(t => {
+            const listLower = (t['todo-list-name'] || '').toLowerCase();
+            const nameLower = (t.content           || '').toLowerCase();
+            return listLower.includes(defKw) || nameLower.includes(defKw);
         }) || null;
     }
 
@@ -2642,6 +2708,23 @@
         if (task) {
             const list = esc(task['todo-list-name'] || '');
             const proj = esc(task['project-name'] || '');
+
+            // Detect if this matched via the default fallback (not a saved mapping or prefix match)
+            const prefix = ticketId.split('-')[0].toUpperCase();
+            const map = getPrefixMap();
+            const hasSavedMapping = !!map[prefix];
+            const prefixLower = prefix.toLowerCase();
+            const isPrefixMatch = quickTasks.some(t => {
+                const l = (t['todo-list-name'] || '').toLowerCase();
+                const p = (t['project-name']   || '').toLowerCase();
+                return l.includes(prefixLower) || p.includes(prefixLower);
+            });
+            const isDefault = !hasSavedMapping && !isPrefixMatch;
+            const matchLabel = isDefault
+                ? `<span style="font-size:10px;color:var(--text-dimmer);background:var(--surface-2);
+                    padding:1px 6px;border-radius:4px;border:1px solid var(--border);">default task</span>`
+                : '';
+
             const opts = quickTasks.map((t, i) => {
                 const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
                 return `<option value="${i}">${esc(label)}</option>`;
@@ -2650,6 +2733,7 @@
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                     <span style="color:var(--success);font-weight:600;">✓ ${esc(ticketId)}</span>
                     <span style="color:var(--text-dim);">→ ${proj} › ${list}</span>
+                    ${matchLabel}
                     <button onclick="document.getElementById('linear-override-row').style.display='flex'"
                         style="font-size:10px;padding:1px 7px;border-radius:4px;background:none;border:1px solid var(--border);
                         color:var(--text-dimmer);cursor:pointer;white-space:nowrap;">Wrong? Change →</button>
@@ -2847,7 +2931,10 @@
         document.getElementById('rule-daily-target').value   = rules.dailyTargetHours;
         document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
-        document.getElementById('rule-project-filter').value = rules.quickProjectFilter;
+        document.getElementById('rule-project-filter').value         = rules.quickProjectFilter;
+        document.getElementById('rule-default-linear-task').value    = rules.defaultLinearTask || '';
+        document.getElementById('rule-days-collapsed').checked       = !!rules.daysCollapsedByDefault;
+        document.getElementById('rule-ui-scale').value               = rules.uiScale || 'normal';
         renderGroupsUI();
         renderGoalsUI();
         renderPrefixMapSection();
@@ -3012,7 +3099,10 @@
         rules.dailyTargetHours   = parseFloat(document.getElementById('rule-daily-target').value) || 8;
         rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value) || 9;
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
-        rules.quickProjectFilter = document.getElementById('rule-project-filter').value.trim();
+        rules.quickProjectFilter       = document.getElementById('rule-project-filter').value.trim();
+        rules.defaultLinearTask        = document.getElementById('rule-default-linear-task').value.trim();
+        rules.daysCollapsedByDefault   = document.getElementById('rule-days-collapsed').checked;
+        rules.uiScale                  = document.getElementById('rule-ui-scale').value || 'normal';
 
         // Read groups from the dynamic rows
         const groupRows = document.querySelectorAll('#qt-groups-rows .qt-group-row');
@@ -3449,11 +3539,14 @@
 
     // ─── Configurable rules (persisted to localStorage) ──────────────────────
     let rules = {
-        roundingMins:       5,
-        dailyTargetHours:   8,
-        dailyCapHours:      9,
-        extensionCapPct:    150,
-        quickProjectFilter: '',
+        roundingMins:            5,
+        dailyTargetHours:        8,
+        dailyCapHours:           9,
+        extensionCapPct:         150,
+        quickProjectFilter:      '',
+        defaultLinearTask:       'Back End Engineering',
+        daysCollapsedByDefault:  false,
+        uiScale:                 'normal',
         quickTaskGroups: [
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },
@@ -3486,6 +3579,14 @@
                 ];
             }
         } catch (_) {}
+        applyUiScale();
+    }
+
+    function applyUiScale() {
+        document.body.classList.remove('ui-small', 'ui-normal', 'ui-large');
+        if (rules.uiScale && rules.uiScale !== 'normal') {
+            document.body.classList.add('ui-' + rules.uiScale);
+        }
     }
 
     function saveRules() {
