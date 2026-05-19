@@ -2540,6 +2540,7 @@
 
         // Split into per-group arrays
         // Match keyword against task name, task list name, or project name
+        const groups = rules.quickTaskGroups || [];
         quickTasksByGroup = groups.map(g => {
             const kw = (g.keyword || '').toLowerCase().trim();
             if (!kw) return [];
