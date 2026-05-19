@@ -2644,6 +2644,20 @@
         } else {
             // No match — show task picker to save a mapping
             const prefix = ticketId.split('-')[0].toUpperCase();
+
+            if (!quickTasks.length) {
+                // Tasks haven't loaded — give actionable guidance
+                const filter = rules.quickProjectFilter || '';
+                el.innerHTML = `<div style="color:var(--danger);font-size:11px;line-height:1.5;">
+                    No tasks loaded.
+                    ${filter
+                        ? `Your project filter is set to <b>"${esc(filter)}"</b> — no matching projects found. `
+                        : ''}
+                    Go to <b>Settings → Quick Tasks project filter</b> and set it to a word in your project name (or leave it blank to search all projects).
+                </div>`;
+                return;
+            }
+
             const opts = quickTasks.map((t, i) => {
                 const label = [t['project-name'], t['todo-list-name'], t.content].filter(Boolean).join(' › ');
                 return `<option value="${i}">${esc(label)}</option>`;
@@ -3422,7 +3436,7 @@
         dailyTargetHours:   8,
         dailyCapHours:      9,
         extensionCapPct:    150,
-        quickProjectFilter: 'WooCommerce',
+        quickProjectFilter: '',
         quickTaskGroups: [
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },
