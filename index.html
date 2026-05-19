@@ -2635,88 +2635,141 @@
 
         const content = document.getElementById('bulk-preview-content');
 
-        if (!bulkPlan.length) {
-            content.innerHTML = '<div class="preview-empty">No changes needed — targets already met!</div>';
+        // Fast lookup: entryId → { item, idx } for plan items
+        const planByEntryId = {};
+        bulkPlan.forEach((item, idx) => {
+            if (item.entryId && item.type !== 'WARN') planByEntryId[String(item.entryId)] = { item, idx };
+        });
+
+        // Collect ALL week entries grouped by project
+        const allByProj = {}; // pid → entry[]
+        Object.entries(weekEntries).forEach(([dayKey, dayEnts]) => {
+            dayEnts.forEach(e => {
+                const pid = String(e['project-id']);
+                if (!allByProj[pid]) allByProj[pid] = [];
+                allByProj[pid].push({ ...e, _dayKey: dayKey });
+            });
+        });
+        // Include projects only in bulkPlan (e.g. WARN with no entries)
+        bulkPlan.forEach(item => { if (!allByProj[item.pid]) allByProj[item.pid] = []; });
+
+        if (!Object.keys(allByProj).length) {
+            content.innerHTML = '<div class="preview-empty">No entries this week.</div>';
             document.getElementById('bulk-publish-note').textContent = 'Nothing to publish.';
             document.getElementById('bulk-publish-btn').disabled = true;
             return;
         }
 
-        // Group plan by project
-        const byProj = {};
-        bulkPlan.forEach(item => {
-            if (!byProj[item.pid]) byProj[item.pid] = [];
-            byProj[item.pid].push(item);
-        });
-
-        const actionItems = bulkPlan.filter(i => i.type !== 'WARN');
-        const warnItems  = bulkPlan.filter(i => i.type === 'WARN');
-        const totalAddMins = actionItems.reduce((s, i) => s + i.addMins, 0);
-        const weekCurrentMins = Object.values(weekEntries).flat().reduce((s, e) => s + entryMins(e), 0);
-        const weekAfterMins   = weekCurrentMins + totalAddMins;
-
         let html = '';
-        Object.entries(byProj).forEach(([pid, items]) => {
+        Object.entries(allByProj).forEach(([pid, entries]) => {
             const color    = projectColor(pid);
-            const projName = items[0].projectName;
-            const actItems = items.filter(i => i.type !== 'WARN');
-            const wItems   = items.filter(i => i.type === 'WARN');
-            const projAddMins    = actItems.reduce((s, i) => s + i.addMins, 0);
-            const projCurrentMins = Object.values(weekEntries).flat()
-                .filter(e => String(e['project-id']) === String(pid))
-                .reduce((s, e) => s + entryMins(e), 0);
-            const projAfterMins  = projCurrentMins + projAddMins;
+            const projName = entries.length ? (entries[0]['project-name'] || 'Unknown') : getProjName(pid);
+
+            const projCurrentMins = entries.reduce((s, e) => s + entryMins(e), 0);
+            const projDeltaMins   = bulkPlan
+                .filter(i => String(i.pid) === pid && i.type !== 'WARN')
+                .reduce((s, i) => s + (i.newMins - i.oldMins), 0);
+            const projAfterMins   = projCurrentMins + projDeltaMins;
 
             html += `<div style="margin-bottom:20px;">
                 <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
                     <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></div>
                     <div style="font-size:12px;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:0.4px;">${esc(projName)}</div>
-                    <div style="margin-left:auto;font-size:12px;font-weight:700;color:var(--text-dim);">${fmtTime(projCurrentMins)}</div>
-                    <div style="font-size:12px;color:var(--text-dimmer);">→</div>
-                    <div style="font-size:12px;font-weight:700;color:var(--success);">${fmtTime(projAfterMins)} <span style="font-weight:400;font-size:11px;">(+${fmtTime(projAddMins)})</span></div>
-                </div>
+                    <div style="margin-left:auto;font-size:12px;font-weight:700;color:var(--text-dim);">${fmtTime(projCurrentMins)}</div>`;
+
+            if (projDeltaMins !== 0) {
+                const sign = projDeltaMins > 0 ? '+' : '';
+                const deltaColor = projDeltaMins > 0 ? 'var(--success)' : 'var(--danger)';
+                html += `<div style="font-size:12px;color:var(--text-dimmer);">→</div>
+                    <div style="font-size:12px;font-weight:700;color:${deltaColor};">${fmtTime(projAfterMins)} <span style="font-weight:400;font-size:11px;">(${sign}${fmtTime(Math.abs(projDeltaMins))})</span></div>`;
+            }
+
+            html += `</div>
                 <table class="preview-table">
                     <thead><tr><th>Op</th><th>Day</th><th>Task / Description</th><th>Before</th><th>After</th></tr></thead>
                     <tbody>`;
 
-            actItems.forEach(item => {
-                const planIdx   = bulkPlan.indexOf(item);
-                const dayLabel  = new Date(item.dayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                const taskLine  = item.taskName
-                    ? esc((item.taskList ? item.taskList + ' › ' : '') + item.taskName)
+            // Sort entries chronologically
+            const sorted = [...entries].sort((a, b) => a._dayKey.localeCompare(b._dayKey));
+
+            sorted.forEach(e => {
+                const planEntry = planByEntryId[String(e.id)];
+                const dayLabel  = new Date(e._dayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                const taskLine  = e['todo-item-name']
+                    ? esc((e['todo-list-name'] ? e['todo-list-name'] + ' › ' : '') + e['todo-item-name'])
                     : '';
-                const descLine  = item.description ? esc(item.description) : '';
-                const opBadge   = `<span class="op-edit">EXTEND</span>`;
+                const descLine  = e.description ? esc(e.description) : '';
+                const origMins  = entryMins(e);
 
-                const projDayTotal = projectedDayTotal(item.dayKey);
-                const atDayCap     = projDayTotal >= rules.dailyCapHours * 60;
-                const extPct       = item.oldMins > 0 ? Math.round((item.newMins / item.oldMins) * 100) : null;
-                const overExtCap   = extPct !== null && extPct > rules.extensionCapPct;
+                if (planEntry) {
+                    // ── Auto-adjusted (EXTEND) row ────────────────────────────
+                    const { item, idx } = planEntry;
+                    const projDayTotal = projectedDayTotal(e._dayKey);
+                    const atDayCap     = projDayTotal >= rules.dailyCapHours * 60;
+                    const extPct       = item.oldMins > 0 ? Math.round((item.newMins / item.oldMins) * 100) : null;
+                    const overExtCap   = extPct !== null && extPct > rules.extensionCapPct;
+                    const badges = [
+                        atDayCap   ? `<span style="font-size:10px;color:var(--warning);background:#FEF9C3;padding:2px 5px;border-radius:4px;border:1px solid #FDE68A;">${rules.dailyCapHours}h cap</span>` : '',
+                        overExtCap ? `<span class="ext-cap-badge">↑${extPct}%</span>` : ''
+                    ].filter(Boolean).join(' ');
 
-                const badges = [
-                    atDayCap   ? `<span style="font-size:10px;color:var(--warning);background:#FEF9C3;padding:2px 5px;border-radius:4px;border:1px solid #FDE68A;">${rules.dailyCapHours}h cap</span>` : '',
-                    overExtCap ? `<span class="ext-cap-badge">↑${extPct}%</span>` : ''
-                ].filter(Boolean).join(' ');
+                    html += `<tr>
+                        <td><span class="op-edit">EXTEND</span></td>
+                        <td style="white-space:nowrap;">${dayLabel}</td>
+                        <td style="min-width:180px;">
+                            ${taskLine ? `<div style="font-size:12px;font-weight:600;line-height:1.4;">${taskLine}</div>` : ''}
+                            ${descLine ? `<div style="font-size:11px;color:var(--text-dim);word-break:break-all;">${descLine}</div>` : (!taskLine ? '<span style="color:var(--text-dimmer);">—</span>' : '')}
+                        </td>
+                        <td class="pre-cell">${fmtTime(item.oldMins)}</td>
+                        <td class="post-cell">
+                            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                                <input class="preview-time-input" data-plan-idx="${idx}"
+                                    data-entry-id="${e.id}" data-day-key="${e._dayKey}" data-old-mins="${origMins}"
+                                    value="${fmtTime(item.newMins)}" onchange="updatePlanEntry(this)" title="Edit to adjust manually" />
+                                ${badges}
+                            </div>
+                        </td>
+                    </tr>`;
 
-                html += `<tr>
-                    <td>${opBadge}</td>
-                    <td style="white-space:nowrap;">${dayLabel}</td>
-                    <td style="min-width:180px;">
-                        ${taskLine ? `<div style="font-size:12px;font-weight:600;line-height:1.4;">${taskLine}</div>` : ''}
-                        ${descLine ? `<div style="font-size:11px;color:var(--text-dim);word-break:break-all;line-height:1.4;">${descLine}</div>` : (!taskLine ? '<span style="color:var(--text-dimmer);">—</span>' : '')}
-                    </td>
-                    <td class="pre-cell">${fmtTime(item.oldMins)}</td>
-                    <td class="post-cell">
-                        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-                            <input class="preview-time-input" data-plan-idx="${planIdx}" value="${fmtTime(item.newMins)}" onchange="updatePlanEntry(this)" title="Edit to adjust manually" />
-                            ${badges}
-                        </div>
-                    </td>
-                </tr>`;
+                } else {
+                    // ── Unchanged row — editable, creates MANUAL plan item ────
+                    const manualItem = bulkPlan.find(i => i.type === 'MANUAL' && String(i.entryId) === String(e.id));
+                    const manualIdx  = manualItem ? bulkPlan.indexOf(manualItem) : -1;
+                    const displayMins = manualItem ? manualItem.newMins : origMins;
+                    const isManual   = !!manualItem;
+
+                    const opBadge = isManual
+                        ? `<span style="color:var(--success);font-weight:700;font-size:10px;background:var(--success-light);padding:2px 6px;border-radius:4px;">MANUAL</span>`
+                        : `<span style="color:var(--text-dimmer);font-size:11px;">—</span>`;
+
+                    const inputStyle = isManual
+                        ? ''
+                        : 'border-color:var(--border);color:var(--text-dim);background:var(--surface-2);';
+
+                    html += `<tr style="${isManual ? '' : 'opacity:0.8;'}">
+                        <td>${opBadge}</td>
+                        <td style="white-space:nowrap;">${dayLabel}</td>
+                        <td style="min-width:180px;">
+                            ${taskLine ? `<div style="font-size:12px;font-weight:600;line-height:1.4;">${taskLine}</div>` : ''}
+                            ${descLine ? `<div style="font-size:11px;color:var(--text-dim);word-break:break-all;">${descLine}</div>` : (!taskLine ? '<span style="color:var(--text-dimmer);">—</span>' : '')}
+                        </td>
+                        <td class="pre-cell">${fmtTime(origMins)}</td>
+                        <td class="post-cell">
+                            <input class="preview-time-input" style="${inputStyle}"
+                                data-plan-idx="${manualIdx}"
+                                data-entry-id="${e.id}"
+                                data-day-key="${e._dayKey}"
+                                data-old-mins="${origMins}"
+                                value="${fmtTime(displayMins)}"
+                                onchange="updatePlanEntry(this)"
+                                title="Edit to manually adjust this entry" />
+                        </td>
+                    </tr>`;
+                }
             });
 
-            // Warnings for this project
-            wItems.forEach(item => {
+            // WARN rows for this project
+            bulkPlan.filter(i => i.type === 'WARN' && String(i.pid) === pid).forEach(item => {
                 html += `<tr style="background:var(--warning-light);">
                     <td colspan="5" style="color:var(--warning);font-size:12px;font-weight:600;padding:8px;">
                         ${esc(item.message)}
@@ -2727,21 +2780,8 @@
             html += `</tbody></table></div>`;
         });
 
-        // Global warning summary if any
-        if (warnItems.length) {
-            html += `<div style="background:var(--warning-light);border:1px solid var(--warning);border-radius:8px;padding:12px;font-size:12px;color:var(--warning);font-weight:600;margin-top:4px;">
-                ⚠ Some hours couldn't fit — the daily cap was reached on all available days. Add more entries manually or raise the daily cap in Settings.
-            </div>`;
-        }
-
         content.innerHTML = html;
-
-        const changeCount = actionItems.length;
-        const warnProjects = [...new Set(warnItems.map(w => w.projectName))];
-        let noteText = `${changeCount} change${changeCount !== 1 ? 's' : ''} · Week: ${fmtTime(weekCurrentMins)} → ${fmtTime(weekAfterMins)}`;
-        if (warnProjects.length) noteText += ` · ⚠ couldn't fit all hours for: ${warnProjects.join(', ')}`;
-        document.getElementById('bulk-publish-note').textContent = noteText;
-        document.getElementById('bulk-publish-btn').disabled = changeCount === 0;
+        updateBulkFooter();
     }
 
     function backToTargets() {
@@ -2762,7 +2802,8 @@
         let success = 0, failed = 0;
 
         for (const item of bulkPlan) {
-            if (item.type === 'WARN') continue; // skip — nothing to publish
+            if (item.type === 'WARN') continue;           // nothing to publish
+            if (item.newMins === item.oldMins) continue;  // no-op, skip
             try {
                 const newH = Math.floor(item.newMins / 60);
                 const newM = item.newMins % 60;
@@ -2813,33 +2854,84 @@
     }
 
     function updatePlanEntry(input) {
-        const idx  = parseInt(input.dataset.planIdx);
-        const item = bulkPlan[idx];
-        const parsed = parseTimeInput(input.value);
-        if (parsed === null || parsed < item.oldMins) {
-            input.classList.add('invalid');
-            return;
+        const planIdx  = parseInt(input.dataset.planIdx);
+        const entryId  = input.dataset.entryId;
+        const parsed   = parseTimeInput(input.value);
+
+        if (planIdx >= 0) {
+            // ── Existing EXTEND or MANUAL plan item ──────────────────────────
+            const item = bulkPlan[planIdx];
+            if (parsed === null || parsed < 0) { input.classList.add('invalid'); return; }
+            input.classList.remove('invalid');
+            item.newMins = roundToStep(parsed);
+            item.addMins = item.newMins - item.oldMins;
+
+        } else {
+            // ── Unchanged entry — create / update / remove a MANUAL plan item ─
+            const dayKey  = input.dataset.dayKey;
+            const oldMins = parseInt(input.dataset.oldMins);
+            if (parsed === null || parsed < 0) { input.classList.add('invalid'); return; }
+            input.classList.remove('invalid');
+            const newMins = roundToStep(parsed);
+
+            const existingIdx = bulkPlan.findIndex(i => i.type === 'MANUAL' && String(i.entryId) === String(entryId));
+
+            if (newMins === oldMins) {
+                // Reverted to original — remove the manual item if it exists
+                if (existingIdx >= 0) bulkPlan.splice(existingIdx, 1);
+            } else if (existingIdx >= 0) {
+                bulkPlan[existingIdx].newMins = newMins;
+                bulkPlan[existingIdx].addMins = newMins - oldMins;
+            } else {
+                // Brand new manual edit — build plan item from weekEntries
+                const e = (weekEntries[dayKey] || []).find(ent => String(ent.id) === String(entryId));
+                if (!e) return;
+                bulkPlan.push({
+                    type: 'MANUAL',
+                    pid: String(e['project-id']),
+                    projectName: e['project-name'] || 'Unknown',
+                    taskList: e['todo-list-name'] || '',
+                    taskName: e['todo-item-name'] || '',
+                    description: e.description || '',
+                    dayKey,
+                    apiDate: toApiDate(new Date(dayKey + 'T00:00:00')),
+                    entryId: String(entryId),
+                    oldMins, newMins, addMins: newMins - oldMins
+                });
+            }
         }
-        input.classList.remove('invalid');
-        const newMins = roundToStep(parsed);
-        item.newMins  = newMins;
-        item.addMins  = newMins - item.oldMins;
-        // Re-render so project headers + footer + cap badges all refresh, then restore focus
+
+        // Re-render and restore focus on the same input
         renderBulkPreview();
-        const restored = document.querySelector(`.preview-time-input[data-plan-idx="${idx}"]`);
+        const restored = planIdx >= 0
+            ? document.querySelector(`.preview-time-input[data-plan-idx="${planIdx}"]`)
+            : document.querySelector(`.preview-time-input[data-entry-id="${entryId}"]`);
         if (restored) { restored.focus(); restored.select(); }
     }
 
     function updateBulkFooter() {
-        const actionItems    = bulkPlan.filter(i => i.type !== 'WARN');
-        const warnItems      = bulkPlan.filter(i => i.type === 'WARN');
-        const totalAddMins   = actionItems.reduce((s, i) => s + i.addMins, 0);
+        const extendItems = bulkPlan.filter(i => i.type === 'EDIT'   && i.newMins !== i.oldMins);
+        const manualItems = bulkPlan.filter(i => i.type === 'MANUAL' && i.newMins !== i.oldMins);
+        const warnItems   = bulkPlan.filter(i => i.type === 'WARN');
+        const allAction   = [...extendItems, ...manualItems];
+
+        const totalDeltaMins  = allAction.reduce((s, i) => s + (i.newMins - i.oldMins), 0);
         const weekCurrentMins = Object.values(weekEntries).flat().reduce((s, e) => s + entryMins(e), 0);
-        const weekAfterMins  = weekCurrentMins + totalAddMins;
-        const warnProjects   = [...new Set(warnItems.map(w => w.projectName))];
-        let noteText = `${actionItems.length} change${actionItems.length !== 1 ? 's' : ''} · Week: ${fmtTime(weekCurrentMins)} → ${fmtTime(weekAfterMins)}`;
+        const weekAfterMins   = weekCurrentMins + totalDeltaMins;
+
+        const parts = [];
+        if (extendItems.length) parts.push(`${extendItems.length} auto-extend${extendItems.length > 1 ? 's' : ''}`);
+        if (manualItems.length) parts.push(`${manualItems.length} manual edit${manualItems.length > 1 ? 's' : ''}`);
+
+        let noteText = parts.length
+            ? `${parts.join(' · ')} · Week: ${fmtTime(weekCurrentMins)} → ${fmtTime(weekAfterMins)}`
+            : 'No changes yet — edit any entry in the table above';
+
+        const warnProjects = [...new Set(warnItems.map(w => w.projectName))];
         if (warnProjects.length) noteText += ` · ⚠ couldn't fit all hours for: ${warnProjects.join(', ')}`;
+
         document.getElementById('bulk-publish-note').textContent = noteText;
+        document.getElementById('bulk-publish-btn').disabled = allAction.length === 0;
     }
 
     init();
