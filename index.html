@@ -2515,8 +2515,7 @@
 
     // ─── Quick Tasks (one tab per keyword group) ──────────────────────────────
     async function loadQuickTasks() {
-        const groups = rules.quickTaskGroups || [];
-        if (!groups.length || !projects.length) return;
+        if (!projects.length) return;
 
         const projFilter  = (rules.quickProjectFilter || '').toLowerCase().trim();
         const targetProjs = projFilter
@@ -2583,9 +2582,15 @@
     }
 
     // ─── Linear quick-log ─────────────────────────────────────────────────────
-    function extractLinearId(url) {
-        const m = url.match(/\/issue\/([A-Z]+-\d+)/i);
-        return m ? m[1].toUpperCase() : null;
+    function extractLinearId(val) {
+        if (!val) return null;
+        // Full Linear URL: .../issue/TICKET-ID[/slug]
+        const mUrl = val.match(/\/issue\/([A-Z][A-Z0-9]*-\d+)/i);
+        if (mUrl) return mUrl[1].toUpperCase();
+        // Bare ticket ID pasted directly: e.g. SQUARE-133 or wooacbk-120
+        const mId = val.trim().match(/^([A-Z][A-Z0-9]*-\d+)$/i);
+        if (mId) return mId[1].toUpperCase();
+        return null;
     }
 
     function getPrefixMap() {
