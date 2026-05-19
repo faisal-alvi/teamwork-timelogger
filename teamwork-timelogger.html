@@ -2107,10 +2107,15 @@
         }));
 
         // Split into per-group arrays
+        // Match keyword against task name, task list name, or project name
         quickTasksByGroup = groups.map(g => {
             const kw = (g.keyword || '').toLowerCase().trim();
             if (!kw) return [];
-            return allTasks.filter(t => (t.content || '').toLowerCase().includes(kw));
+            return allTasks.filter(t =>
+                (t.content             || '').toLowerCase().includes(kw) ||
+                (t['todo-list-name']   || '').toLowerCase().includes(kw) ||
+                (t['project-name']     || '').toLowerCase().includes(kw)
+            );
         });
 
         // Flat union for prefix-map / Linear auto-detect (deduped)
