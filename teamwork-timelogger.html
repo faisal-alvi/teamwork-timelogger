@@ -634,16 +634,42 @@
 
         .edit-row.open { display: block; }
 
-        .edit-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
         .edit-actions {
             display: flex; gap: 6px; justify-content: flex-end;
         }
+
+        /* Segmented date+time control */
+        .edit-segmented {
+            display: flex;
+            border: 1.5px solid var(--border);
+            border-radius: 9px;
+            overflow: hidden;
+            margin-bottom: 8px;
+            background: var(--surface);
+            transition: border-color 0.15s;
+        }
+        .edit-segmented:focus-within { border-color: var(--accent); }
+
+        .edit-seg-cell {
+            display: flex; flex-direction: column;
+            padding: 6px 10px;
+        }
+        .edit-seg-cell + .edit-seg-cell { border-left: 1px solid var(--border); }
+        .edit-seg-label {
+            font-size: 10px; font-weight: 700; color: var(--text-dimmer);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;
+        }
+        .edit-seg-cell input[type="date"],
+        .edit-seg-cell input[type="number"] {
+            border: none; outline: none; background: transparent;
+            color: var(--text); font-size: 13px; font-weight: 600; padding: 0;
+        }
+        .edit-seg-cell input[type="number"] {
+            width: 38px; text-align: center;
+        }
+        .edit-seg-cell input[type="number"]::-webkit-inner-spin-button,
+        .edit-seg-cell input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+        .edit-seg-cell input[type="number"] { -moz-appearance: textfield; }
 
         /* Inline quick-add form */
         .inline-add {
@@ -1750,25 +1776,24 @@
             </div>
         </div>
         <div class="edit-row" id="edit-${e.id}">
-            <div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:8px;">
-                <div style="flex:1;min-width:0;">
-                    <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">DATE</label>
-                    <input type="date" id="edate-${e.id}" value="${entryDayKey}"
-                        style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);outline:none;cursor:pointer;"
-                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            <div class="edit-segmented">
+                <div class="edit-seg-cell" style="flex:1;min-width:0;">
+                    <span class="edit-seg-label">Date</span>
+                    <input type="date" id="edate-${e.id}" value="${entryDayKey}" style="width:100%;cursor:pointer;">
                 </div>
-                <div style="flex-shrink:0;">
-                    <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">H</label>
-                    <input type="number" id="eh-${e.id}" value="${h}" min="0" max="23" style="width:52px;text-align:center;">
+                <div class="edit-seg-cell">
+                    <span class="edit-seg-label">H</span>
+                    <input type="number" id="eh-${e.id}" value="${h}" min="0" max="23">
                 </div>
-                <div style="flex-shrink:0;">
-                    <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">M</label>
-                    <input type="number" id="em-${e.id}" value="${m}" min="0" max="59" step="15" style="width:52px;text-align:center;">
+                <div class="edit-seg-cell">
+                    <span class="edit-seg-label">M</span>
+                    <input type="number" id="em-${e.id}" value="${m}" min="0" max="59" step="15">
                 </div>
             </div>
             <div style="margin-bottom:8px;">
-                <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">DESCRIPTION</label>
-                <input type="text" id="ed-${e.id}" value="${desc}">
+                <input type="text" id="ed-${e.id}" value="${desc}" placeholder="Description…"
+                    style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;color:var(--text);"
+                    onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
             </div>
             <div class="edit-actions">
                 <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="closeEditRow('${e.id}')">Cancel</button>
