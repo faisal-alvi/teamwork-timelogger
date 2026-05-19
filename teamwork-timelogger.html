@@ -3095,9 +3095,13 @@
         return SUMMARY_IGNORED.some(phrase => lower.includes(phrase));
     }
 
-    // Strip full Linear URLs down to just the ticket ID so the link renders short
+    // Strip full Linear URLs down to just the ticket ID; remove any remaining URLs entirely
     function normaliseDesc(desc) {
-        return desc.replace(LINEAR_URL_RE, (_, ticket) => ticket).trim();
+        return desc
+            .replace(LINEAR_URL_RE, (_, ticket) => ticket)  // known Linear URLs → ticket ID
+            .replace(/https?:\/\/\S+/g, '')                  // all other URLs → gone
+            .replace(/\s{2,}/g, ' ')
+            .trim();
     }
 
     function linkifyLinear(text) {
