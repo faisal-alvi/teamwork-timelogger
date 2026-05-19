@@ -711,6 +711,67 @@
             color: var(--danger); background: var(--danger-light);
         }
 
+        .entry-actions button.dup:hover {
+            color: var(--accent); background: var(--accent-light);
+        }
+
+        /* Day comparison badge */
+        .day-vs-badge {
+            font-size: 10px; font-weight: 700;
+            padding: 1px 6px; border-radius: 10px;
+            white-space: nowrap;
+        }
+
+        /* Entry search bar */
+        .entry-search-wrap {
+            padding: 0 0 12px;
+            position: relative;
+        }
+
+        .entry-search-wrap input {
+            width: 100%; padding: 7px 10px 7px 30px;
+            border: 1.5px solid var(--border); border-radius: 8px;
+            font-size: 12px; color: var(--text); background: var(--surface);
+            outline: none; transition: border-color 0.15s;
+        }
+
+        .entry-search-wrap input:focus { border-color: var(--accent); }
+
+        .entry-search-wrap .search-icon {
+            position: absolute; left: 9px; top: 50%;
+            transform: translateY(-50%);
+            font-size: 13px; color: var(--text-dimmer); pointer-events: none;
+        }
+
+        /* Timer in header */
+        .timer-wrap {
+            display: flex; align-items: center; gap: 6px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 4px 10px;
+            font-size: 13px; font-weight: 700;
+        }
+
+        .timer-wrap.running {
+            background: #fef3c7; border-color: #fbbf24; color: #92400e;
+        }
+
+        .timer-display { font-variant-numeric: tabular-nums; min-width: 48px; }
+
+        .timer-btn {
+            background: none; border: none; cursor: pointer;
+            font-size: 15px; line-height: 1; padding: 0 2px;
+            transition: transform 0.1s;
+        }
+
+        .timer-btn:hover { transform: scale(1.2); }
+
+        /* Live day total preview */
+        .live-day-preview {
+            font-size: 11px; color: var(--text-dim);
+            margin-top: 4px; text-align: right;
+            min-height: 16px;
+        }
+
         /* Inline edit */
         .edit-row {
             display: none;
@@ -1064,6 +1125,12 @@
                 <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
+            <!-- Timer -->
+            <div class="timer-wrap" id="timer-wrap" title="Press T to start/stop timer">
+                <span class="timer-display" id="timer-display">0:00</span>
+                <button class="timer-btn" id="timer-btn" onclick="toggleTimer()" title="Start">▶</button>
+                <button class="timer-btn" onclick="resetTimer()" title="Reset" style="font-size:12px;color:var(--text-dimmer);">↺</button>
+            </div>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
             <button class="settings-btn" onclick="openSettings()">Settings</button>
         </div>
@@ -1151,11 +1218,12 @@
                 <div class="form-group">
                     <label>Hours &amp; minutes</label>
                     <div class="time-inputs">
-                        <input type="number" id="log-hours" min="0" max="23" value="0">
+                        <input type="number" id="log-hours" min="0" max="23" value="0" oninput="updateLiveDayPreview()">
                         <span>h</span>
-                        <input type="number" id="log-minutes" min="0" max="59" value="0" step="15">
+                        <input type="number" id="log-minutes" min="0" max="59" value="0" step="15" oninput="updateLiveDayPreview()">
                         <span>m</span>
                     </div>
+                    <div class="live-day-preview" id="live-day-preview"></div>
                 </div>
 
                 <div class="form-group">
@@ -1190,6 +1258,14 @@
 
             <!-- Project goal progress cards -->
             <div class="goals-strip" id="goals-strip"></div>
+
+            <!-- Entry search -->
+            <div class="entry-search-wrap">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="entry-search" placeholder="Search entries… (press F to focus)"
+                    oninput="filterEntries(this.value)"
+                    onkeydown="if(event.key==='Escape'){this.value='';filterEntries('');this.blur();}">
+            </div>
 
             <div id="week-days-container">
                 <!-- Day blocks rendered by JS -->
@@ -1392,7 +1468,13 @@
     let quickTasks       = [];              // flat union of all groups (for prefix map / search)
     let quickTasksByGroup = [];            // parallel array: one task[] per group
     let activeQuickGroup  = 0;            // index of currently visible tab
-    let weekEntries  = {};                  // key: 'YYYY-MM-DD' → array of entries
+    let weekEntries      = {};              // key: 'YYYY-MM-DD' → array of entries
+    let lastWeekEntries  = {};              // same structure, previous week (for day comparison)
+
+    // ── Timer state ────────────────────────────────────────────────────────────
+    let timerInterval = null;
+    let timerStartedAt = null;   // timestamp when started
+    let timerElapsed   = 0;      // total elapsed ms before last pause
 
     // ─── Boot ─────────────────────────────────────────────────────────────────
     function init() {
@@ -1487,6 +1569,7 @@
         syncLinearDate();
         loadProjects(); // loadQuickTasks() is called inside after projects are ready
         loadWeekData();
+        initNotifications();
     }
 
     // ─── Projects / Tasks ─────────────────────────────────────────────────────
@@ -1725,6 +1808,56 @@
         renderWeekDays();
         updateWeekTotal();
         Object.keys(weekEntries).forEach(key => silentFixTimes(key));
+        loadLastWeekData();   // fetch previous week quietly for day comparison
+    }
+
+    // Fetch previous week's totals for day-vs-day comparison badges
+    async function loadLastWeekData() {
+        const prevStart = new Date(weekStart);
+        prevStart.setDate(prevStart.getDate() - 7);
+        lastWeekEntries = {};
+        const uf = config.userId ? `&userId=${config.userId}` : '';
+        const fetches = [];
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(prevStart); d.setDate(d.getDate() + i);
+            const key = toDayKey(d);
+            const url = `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`;
+            fetches.push(
+                apiGet(url)
+                    .then(data => { lastWeekEntries[key] = data['time-entries'] || data['timeEntries'] || []; })
+                    .catch(() => { lastWeekEntries[key] = []; })
+            );
+        }
+        await Promise.all(fetches).catch(() => {});
+        updateDayVsBadges();
+    }
+
+    function updateDayVsBadges() {
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(weekStart); d.setDate(d.getDate() + i);
+            const key = toDayKey(d);
+            const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
+            const prevKey = toDayKey(prevD);
+
+            const badge = document.getElementById(`vs-${key}`);
+            if (!badge) continue;
+
+            const cur  = (weekEntries[key]      || []).reduce((s, e) => s + entryMins(e), 0);
+            const prev = (lastWeekEntries[prevKey] || []).reduce((s, e) => s + entryMins(e), 0);
+
+            if (!prev && !cur) { badge.style.display = 'none'; continue; }
+            if (!prev)         { badge.style.display = 'none'; continue; }
+
+            const diff = cur - prev;
+            const absDiffH = (Math.abs(diff) / 60).toFixed(1);
+            const sign = diff >= 0 ? '+' : '−';
+            const bg   = diff >= 0 ? '#dcfce7' : '#fee2e2';
+            const col  = diff >= 0 ? '#15803d' : '#b91c1c';
+            const label = diff === 0 ? '= same' : `${sign}${absDiffH}h vs last ${d.toLocaleDateString('en-US',{weekday:'short'})}`;
+
+            badge.textContent = label;
+            badge.style.cssText += `;background:${bg};color:${col};display:inline-block;`;
+        }
     }
 
     // ─── Render week skeleton (immediate, before data) ────────────────────────
@@ -1749,6 +1882,7 @@
                         <span class="today-badge">Today</span>
                     </div>
                     <div class="day-header-right">
+                        <span class="day-vs-badge" id="vs-${key}" style="display:none;"></span>
                         <span class="day-total-chip">—</span>
                         <button class="add-btn" onclick="openInlineAdd('${key}','${toApiDate(d)}',event)">+ Add</button>
                         <span class="collapse-icon">▾</span>
@@ -1887,6 +2021,7 @@
             </div>
             <div class="entry-hours">${h}:${String(m).padStart(2,'0')}</div>
             <div class="entry-actions">
+                <button class="dup" title="Duplicate entry (pre-fills form)" onclick="event.stopPropagation();duplicateEntry('${e.id}')">⎘</button>
                 <button class="del" title="Delete" onclick="event.stopPropagation();deleteEntry('${e.id}')">✕</button>
             </div>
         </div>
@@ -1946,6 +2081,7 @@
         });
         document.getElementById('week-total-num').textContent = fmtTime(total);
         updateGoalProgress();
+        updateDayVsBadges();
     }
 
     // ─── Project goal progress cards ──────────────────────────────────────────
@@ -2867,6 +3003,165 @@
         location.reload();
     }
 
+    // ─── Timer ────────────────────────────────────────────────────────────────
+    function toggleTimer() {
+        if (timerInterval) {
+            // Pause
+            timerElapsed += Date.now() - timerStartedAt;
+            clearInterval(timerInterval);
+            timerInterval = null;
+            timerStartedAt = null;
+            document.getElementById('timer-btn').textContent = '▶';
+            document.getElementById('timer-wrap').classList.remove('running');
+        } else {
+            // Start / resume
+            timerStartedAt = Date.now();
+            timerInterval = setInterval(tickTimer, 1000);
+            document.getElementById('timer-btn').textContent = '⏸';
+            document.getElementById('timer-wrap').classList.add('running');
+        }
+    }
+
+    function tickTimer() {
+        const total = timerElapsed + (Date.now() - timerStartedAt);
+        const totalSecs = Math.floor(total / 1000);
+        const h = Math.floor(totalSecs / 3600);
+        const m = Math.floor((totalSecs % 3600) / 60);
+        const s = totalSecs % 60;
+        document.getElementById('timer-display').textContent =
+            h > 0
+                ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+                : `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    function resetTimer() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        // If there's elapsed time, offer to pre-fill the log form
+        const total = timerElapsed + (timerStartedAt ? Date.now() - timerStartedAt : 0);
+        if (total > 30000) {  // more than 30s
+            const totalMins = Math.round(total / 60000);
+            const h = Math.floor(totalMins / 60);
+            const m = totalMins % 60;
+            document.getElementById('log-hours').value   = h;
+            document.getElementById('log-minutes').value = m;
+            updateLiveDayPreview();
+            document.getElementById('log-description')?.focus();
+            toast(`Timer stopped — ${h}h ${m}m pre-filled in log form`, 'success');
+        }
+        timerElapsed   = 0;
+        timerStartedAt = null;
+        document.getElementById('timer-display').textContent = '0:00';
+        document.getElementById('timer-btn').textContent = '▶';
+        document.getElementById('timer-wrap').classList.remove('running');
+    }
+
+    // ─── Duplicate entry ──────────────────────────────────────────────────────
+    function duplicateEntry(id) {
+        // Find entry in weekEntries
+        let entry = null;
+        for (const entries of Object.values(weekEntries)) {
+            entry = entries.find(e => String(e.id) === String(id));
+            if (entry) break;
+        }
+        if (!entry) return;
+
+        const h = Math.floor(entryMins(entry) / 60);
+        const m = entryMins(entry) % 60;
+        const desc = entry.description || '';
+
+        // Pre-fill left log form
+        const projSel = document.getElementById('project-select');
+        const pid = String(entry['project-id'] || '');
+        if (projSel) {
+            projSel.value = pid;
+            loadTasksForProject().then(() => {
+                const taskSel = document.getElementById('task-select');
+                if (taskSel && entry['todo-item-id']) taskSel.value = String(entry['todo-item-id']);
+            });
+        }
+        document.getElementById('log-hours').value   = h;
+        document.getElementById('log-minutes').value = m;
+        document.getElementById('log-description').value = desc;
+        updateLiveDayPreview();
+
+        // Scroll left panel into view and focus description
+        document.getElementById('log-description')?.focus();
+        toast('Entry duplicated — edit & submit', 'success');
+    }
+
+    // ─── Live day total preview ───────────────────────────────────────────────
+    function updateLiveDayPreview() {
+        const el = document.getElementById('live-day-preview');
+        if (!el) return;
+        const h = parseInt(document.getElementById('log-hours')?.value) || 0;
+        const m = parseInt(document.getElementById('log-minutes')?.value) || 0;
+        const adding = h * 60 + m;
+        if (!adding) { el.textContent = ''; return; }
+
+        const key = toDayKey(targetDate);
+        const existing = (weekEntries[key] || []).reduce((s, e) => s + entryMins(e), 0);
+        const newTotal = existing + adding;
+        el.textContent = `Day total will be ${fmtTime(newTotal)}`;
+    }
+
+    // ─── Entry search / filter ────────────────────────────────────────────────
+    function filterEntries(query) {
+        const q = (query || '').toLowerCase().trim();
+        document.querySelectorAll('.entry-row').forEach(row => {
+            if (!q) { row.style.display = ''; return; }
+            const text = (row.textContent || '').toLowerCase();
+            row.style.display = text.includes(q) ? '' : 'none';
+        });
+        // Also hide/show the edit rows paired with hidden entry rows
+        document.querySelectorAll('.edit-row').forEach(row => {
+            const id = row.id.replace('edit-', '');
+            const entryRow = document.getElementById(`er-${id}`);
+            if (entryRow) row.style.display = entryRow.style.display;
+        });
+    }
+
+    // ─── 7 PM end-of-day notification ─────────────────────────────────────────
+    function initNotifications() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+        // Check every minute if it's time to nudge
+        setInterval(checkEodNotification, 60 * 1000);
+        checkEodNotification();
+    }
+
+    function checkEodNotification() {
+        if (Notification.permission !== 'granted') return;
+        const now = new Date();
+        if (now.getDay() === 0 || now.getDay() === 6) return;  // skip weekends
+        if (now.getHours() !== 19 || now.getMinutes() > 5) return; // only fire 7:00–7:05 PM
+
+        const lastFired = localStorage.getItem('tw_eod_notif');
+        const todayKey  = toDayKey(now);
+        if (lastFired === todayKey) return;  // already fired today
+
+        const todayTotal = (weekEntries[todayKey] || []).reduce((s, e) => s + entryMins(e), 0);
+        const target     = (rules.dailyTargetHours || 8) * 60;
+        localStorage.setItem('tw_eod_notif', todayKey);
+
+        if (todayTotal >= target) {
+            new Notification('✅ Time Logger', {
+                body: `Great work! You've hit your ${rules.dailyTargetHours}h daily target today (${fmtTime(todayTotal)} logged).`,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%2310b981"/></svg>'
+            });
+        } else {
+            const remaining = fmtTime(target - todayTotal);
+            new Notification('⏰ Time Logger — 7 PM reminder', {
+                body: `You've logged ${fmtTime(todayTotal)} today. Still ${remaining} to go to hit your ${rules.dailyTargetHours}h target.`,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%234361ee"/></svg>'
+            });
+        }
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
     function esc(s) {
         const d = document.createElement('div');
@@ -2887,6 +3182,23 @@
             if (document.getElementById('main-app').style.display !== 'none') logTime();
         }
         if (e.key === 'Escape') closeBulkAdjust();
+
+        // Global shortcuts — only when not typing in an input
+        const inInput = e.target.matches('input,textarea,select,[contenteditable]');
+        if (!inInput) {
+            if (e.key === 'n' || e.key === 'N') {
+                e.preventDefault();
+                document.getElementById('log-description')?.focus();
+            }
+            if (e.key === 'f' || e.key === 'F') {
+                e.preventDefault();
+                document.getElementById('entry-search')?.focus();
+            }
+            if (e.key === 't' || e.key === 'T') {
+                e.preventDefault();
+                toggleTimer();
+            }
+        }
     });
 
     // ─── Bulk Adjust ─────────────────────────────────────────────────────────
