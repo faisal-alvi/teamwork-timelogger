@@ -2518,41 +2518,44 @@
         if (!projects.length) return;
 
         const projFilter  = (rules.quickProjectFilter || '').toLowerCase().trim();
-        const targetProjs = projFilter
+        const tabProjs    = projFilter
             ? projects.filter(p => (p.name || '').toLowerCase().includes(projFilter))
             : projects;
-        if (!targetProjs.length) return;
 
-        // Fetch all matching tasks once across target projects
+        // Load ALL projects for Linear detection (quickTasks).
+        // The project filter only narrows the quick-task TABS — not detection.
+        // This ensures any Linear ticket can be detected regardless of the tab filter.
         const seen = new Set();
-        const allTasks = [];
-        await Promise.all(targetProjs.map(async p => {
+        const allTasks    = [];   // every task across every project (for detection)
+        const tabTasks    = [];   // only tasks from filter-matching projects (for tabs)
+        await Promise.all(projects.map(async p => {
+            const isTabProj = tabProjs.includes(p);
             try {
                 const data  = await apiGet(`/projects/${p.id}/tasks.json?pageSize=250&includeCompletedTasks=false`);
                 (data['todo-items'] || []).forEach(t => {
                     const key = `${p.id}|${t.id}`;
                     if (seen.has(key)) return;
                     seen.add(key);
-                    allTasks.push({ ...t, 'project-id': p.id, 'project-name': p.name });
+                    const task = { ...t, 'project-id': p.id, 'project-name': p.name };
+                    allTasks.push(task);
+                    if (isTabProj) tabTasks.push(task);
                 });
             } catch (_) {}
         }));
 
-        // Split into per-group arrays
-        // Match keyword against task name, task list name, or project name
+        // Split tab tasks into per-group arrays (keyword filtering for tabs only)
         const groups = rules.quickTaskGroups || [];
         quickTasksByGroup = groups.map(g => {
             const kw = (g.keyword || '').toLowerCase().trim();
             if (!kw) return [];
-            return allTasks.filter(t =>
+            return tabTasks.filter(t =>
                 (t.content             || '').toLowerCase().includes(kw) ||
                 (t['todo-list-name']   || '').toLowerCase().includes(kw) ||
                 (t['project-name']     || '').toLowerCase().includes(kw)
             );
         });
 
-        // ALL tasks from matched projects — used for Linear URL auto-detect & prefix map.
-        // Must NOT be limited to group keywords, so any task is detectable regardless of group.
+        // ALL tasks (all projects) — used for Linear URL auto-detect & prefix map.
         quickTasks = allTasks;
 
         // Reset active tab if out of range
@@ -2666,14 +2669,8 @@
             const prefix = ticketId.split('-')[0].toUpperCase();
 
             if (!quickTasks.length) {
-                // Tasks haven't loaded — give actionable guidance
-                const filter = rules.quickProjectFilter || '';
                 el.innerHTML = `<div style="color:var(--danger);font-size:11px;line-height:1.5;">
-                    No tasks loaded.
-                    ${filter
-                        ? `Your project filter is set to <b>"${esc(filter)}"</b> — no matching projects found. `
-                        : ''}
-                    Go to <b>Settings → Quick Tasks project filter</b> and set it to a word in your project name (or leave it blank to search all projects).
+                    Tasks still loading — try again in a moment, or check your API credentials in Settings.
                 </div>`;
                 return;
             }
