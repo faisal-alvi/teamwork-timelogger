@@ -638,9 +638,10 @@
             display: flex; gap: 6px; justify-content: flex-end;
         }
 
-        /* Segmented date+time control */
+        /* Segmented date+time control — equal-width thirds */
         .edit-segmented {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
             border: 1.5px solid var(--border);
             border-radius: 9px;
             overflow: hidden;
@@ -663,13 +664,19 @@
         .edit-seg-cell input[type="number"] {
             border: none; outline: none; background: transparent;
             color: var(--text); font-size: 13px; font-weight: 600; padding: 0;
+            width: 100%;
         }
-        .edit-seg-cell input[type="number"] {
-            width: 38px; text-align: center;
-        }
+        .edit-seg-cell input[type="number"] { text-align: center; }
         .edit-seg-cell input[type="number"]::-webkit-inner-spin-button,
         .edit-seg-cell input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
         .edit-seg-cell input[type="number"] { -moz-appearance: textfield; }
+
+        /* Highlight entry row being edited */
+        .entry-row.is-editing {
+            background: #fefce8;
+            border-left: 3px solid #eab308;
+        }
+        .entry-row.is-editing:hover { background: #fef9c3; }
 
         /* Inline quick-add form */
         .inline-add {
@@ -1777,7 +1784,7 @@
         </div>
         <div class="edit-row" id="edit-${e.id}">
             <div class="edit-segmented">
-                <div class="edit-seg-cell" style="flex:1;min-width:0;">
+                <div class="edit-seg-cell">
                     <span class="edit-seg-label">Date</span>
                     <input type="date" id="edate-${e.id}" value="${entryDayKey}" style="width:100%;cursor:pointer;">
                 </div>
@@ -2023,14 +2030,20 @@
 
     // ─── Edit / Delete ────────────────────────────────────────────────────────
     function openEditRow(id, h, m, desc) {
-        const row = document.getElementById(`edit-${id}`);
+        const row    = document.getElementById(`edit-${id}`);
         const isOpen = row?.classList.contains('open');
+        // Close all open rows and remove highlights
         document.querySelectorAll('.edit-row.open').forEach(r => r.classList.remove('open'));
-        if (!isOpen) row?.classList.add('open');
+        document.querySelectorAll('.entry-row.is-editing').forEach(r => r.classList.remove('is-editing'));
+        if (!isOpen) {
+            row?.classList.add('open');
+            document.getElementById(`er-${id}`)?.classList.add('is-editing');
+        }
     }
 
     function closeEditRow(id) {
         document.getElementById(`edit-${id}`)?.classList.remove('open');
+        document.getElementById(`er-${id}`)?.classList.remove('is-editing');
     }
 
     async function saveEdit(id) {
