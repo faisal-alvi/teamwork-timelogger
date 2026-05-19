@@ -2326,14 +2326,14 @@
         list.innerHTML = tasks.map((t, i) => {
             const projName = t['project-name'] || 'Unknown';
             const listName = t['todo-list-name'] || '';
-            const badgeText = listName || projName;
             return `<div class="qt-item" onclick="quickLogTask(${activeQuickGroup},${i})"
                 title="${esc(projName)}${listName ? ' › ' + esc(listName) : ''}">
                 <span style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;
                     letter-spacing:0.4px;background:${bg};color:${textCol};
                     padding:1px 6px;border-radius:4px;margin-bottom:4px;max-width:100%;
-                    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(badgeText)}</span>
+                    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(group.keyword || '')}</span>
                 <div class="qt-proj">${esc(projName)}</div>
+                ${listName ? `<div class="qt-list">${esc(listName)}</div>` : ''}
             </div>`;
         }).join('');
     }
