@@ -2315,8 +2315,8 @@
         const overallCard = `<div style="width:100%;background:var(--surface);border:1.5px solid var(--border);
             border-radius:10px;padding:11px 14px 9px;${weekMet ? 'border-color:var(--success);background:var(--success-light);' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin-bottom:7px;">
-                <span style="font-size:12px;font-weight:800;color:var(--text);">📊 Overall week</span>
-                <span style="font-size:11px;font-weight:600;color:var(--text-dim);">
+                <span style="font-size:var(--goal-fs);font-weight:800;color:var(--text);">📊 Overall week</span>
+                <span style="font-size:calc(var(--goal-fs) - 1px);font-weight:600;color:var(--text-dim);">
                     ${overallLoggedH}<span style="color:var(--text-dimmer);">/${overallWeekTarget}h</span>
                 </span>
             </div>
@@ -2324,10 +2324,10 @@
                 <div style="height:100%;width:${overallBarPct}%;background:${overallFill};border-radius:10px;transition:width 0.4s ease;"></div>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:10px;font-weight:700;color:${overallPctColor};">${overallBarPct}%</span>
-                <span style="font-size:10px;color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + ' left this week'}</span>
+                <span style="font-size:calc(var(--goal-fs) - 2px);font-weight:700;color:${overallPctColor};">${overallBarPct}%</span>
+                <span style="font-size:calc(var(--goal-fs) - 2px);color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + ' left this week'}</span>
             </div>
-            ${isCurrentWeek ? `<div style="font-size:10px;font-weight:600;margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);">
+            ${isCurrentWeek ? `<div style="font-size:calc(var(--goal-fs) - 2px);font-weight:600;margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);">
                 Expected by ${todayLabel}: <strong>${overallExpectedH}</strong>
                 &nbsp;·&nbsp;${overallPaceLine}
             </div>` : ''}
