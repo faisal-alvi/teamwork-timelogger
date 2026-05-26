@@ -1127,26 +1127,6 @@
             </div>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
             <button class="settings-btn" onclick="openSettings()">Settings</button>
-            <a id="github-link" href="https://github.com/faisal-alvi/teamwork-timelogger" target="_blank"
-                title="GitHub repository"
-                style="display:none;align-items:center;gap:5px;font-size:12px;font-weight:600;
-                    color:var(--text-dim);text-decoration:none;padding:5px 10px;border-radius:8px;
-                    border:1.5px solid var(--border);background:var(--surface);
-                    transition:border-color 0.15s,color 0.15s;"
-                onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--accent)'"
-                onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-                        0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
-                        -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
-                        .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
-                        -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
-                        .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
-                        .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
-                        0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                </svg>
-                GitHub
-            </a>
         </div>
     </header>
 
@@ -1234,7 +1214,7 @@
                     <div class="time-inputs">
                         <input type="number" id="log-hours" min="0" max="23" value="0" oninput="updateLiveDayPreview()">
                         <span>h</span>
-                        <input type="number" id="log-minutes" min="0" max="59" value="0" step="15" oninput="updateLiveDayPreview()">
+                        <input type="number" id="log-minutes" min="0" max="59" value="30" step="15" oninput="updateLiveDayPreview()">
                         <span>m</span>
                     </div>
                     <div class="live-day-preview" id="live-day-preview"></div>
@@ -1259,6 +1239,27 @@
                 <div class="kbd-hint" style="margin-top:7px;"><kbd>⌘</kbd>+<kbd>↵</kbd> to submit</div>
             </div>
 
+            <a id="github-link" href="https://github.com/faisal-alvi/teamwork-timelogger" target="_blank"
+                title="GitHub repository"
+                style="display:none;align-items:center;gap:6px;font-size:12px;font-weight:600;
+                    color:var(--text-dimmer);text-decoration:none;padding:7px 10px;border-radius:8px;
+                    border:1.5px solid var(--border);background:var(--surface-2);
+                    transition:border-color 0.15s,color 0.15s;margin-top:auto;"
+                onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--accent)'"
+                onmouseout="this.style.color='var(--text-dimmer)';this.style.borderColor='var(--border)'">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                        0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                        -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                        .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+                        -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
+                        .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+                        .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+                        0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+                GitHub
+            </a>
+
         </div>
 
         <!-- RIGHT: Full week view -->
@@ -1267,6 +1268,10 @@
                 <div class="week-total-badge">
                     <div class="wt-num" id="week-total-num">0:00</div>
                     <div class="wt-label">this week</div>
+                </div>
+                <div style="display:flex;gap:6px;">
+                    <button class="settings-btn" onclick="expandAllDays()" title="Expand all days">↕ Expand all</button>
+                    <button class="settings-btn" onclick="collapseAllDays()" title="Collapse all days">↕ Collapse all</button>
                 </div>
             </div>
 
@@ -1338,6 +1343,19 @@
                 </div>
                 <div class="rule-control">
                     <input class="rule-input" type="number" id="rule-daily-cap" min="1" max="24" step="0.5">
+                    <span style="font-size:12px;color:var(--text-dim);">h</span>
+                </div>
+            </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
+                    Break / lunch window
+                    <div class="rule-desc">No entries will be placed in this time range</div>
+                </div>
+                <div class="rule-control" style="gap:6px;">
+                    <input class="rule-input" type="number" id="rule-break-start" min="0" max="23" step="1" style="width:60px;">
+                    <span style="font-size:12px;color:var(--text-dim);">to</span>
+                    <input class="rule-input" type="number" id="rule-break-end" min="0" max="23" step="1" style="width:60px;">
                     <span style="font-size:12px;color:var(--text-dim);">h</span>
                 </div>
             </div>
@@ -1732,6 +1750,12 @@
         return parseInt(parts[0]) * 60 + (parseInt(parts[1]) || 0);
     }
 
+    function skipBreak(mins) {
+        const start = (rules.breakStartHour ?? 16) * 60;
+        const end   = (rules.breakEndHour   ?? 17) * 60;
+        return (mins >= start && mins < end) ? end : mins;
+    }
+
     function nextStartTime(dayKey) {
         const entries = weekEntries[dayKey] || [];
         let maxEnd = 13 * 60;
@@ -1740,6 +1764,7 @@
             const end   = start + (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
             if (end > maxEnd) maxEnd = end;
         });
+        maxEnd = skipBreak(maxEnd);
         return `${String(Math.floor(maxEnd / 60)).padStart(2,'0')}:${String(maxEnd % 60).padStart(2,'0')}`;
     }
 
@@ -1762,8 +1787,9 @@
         if (!needsFix) return;
 
         const dateStr = dayKey.replace(/-/g, '');
-        let cur = 13 * 60;
+        let cur = skipBreak(13 * 60);
         const updates = sorted.map(e => {
+            cur = skipBreak(cur);
             const h = Math.floor(cur / 60), m = cur % 60;
             const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
             cur += entryMins(e);
@@ -2330,6 +2356,14 @@
         if (event.target.closest('.add-btn') || event.target.closest('.inline-add')) return;
         const block = document.querySelector(`.day-block[data-key="${key}"]`);
         block.classList.toggle('collapsed');
+    }
+
+    function expandAllDays() {
+        document.querySelectorAll('.day-block').forEach(b => b.classList.remove('collapsed'));
+    }
+
+    function collapseAllDays() {
+        document.querySelectorAll('.day-block').forEach(b => b.classList.add('collapsed'));
     }
 
     // ─── Inline add ───────────────────────────────────────────────────────────
@@ -2939,7 +2973,7 @@
         });
 
         document.getElementById('log-hours').value   = 0;
-        document.getElementById('log-minutes').value = 15;
+        document.getElementById('log-minutes').value = 30;
         document.getElementById('log-description').value = '';
         document.querySelectorAll('.quick-time').forEach(b => b.classList.remove('active'));
 
@@ -2961,6 +2995,8 @@
         document.getElementById('rule-rounding').value       = rules.roundingMins;
         document.getElementById('rule-daily-target').value   = rules.dailyTargetHours;
         document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
+        document.getElementById('rule-break-start').value    = rules.breakStartHour ?? 16;
+        document.getElementById('rule-break-end').value      = rules.breakEndHour   ?? 17;
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
         document.getElementById('rule-project-filter').value   = rules.quickProjectFilter;
         document.getElementById('rule-days-collapsed').checked  = !!rules.daysCollapsedByDefault;
@@ -3128,6 +3164,8 @@
         rules.roundingMins       = parseInt(document.getElementById('rule-rounding').value)    || 5;
         rules.dailyTargetHours   = parseFloat(document.getElementById('rule-daily-target').value) || 8;
         rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value) || 9;
+        rules.breakStartHour     = parseInt(document.getElementById('rule-break-start').value) ?? 16;
+        rules.breakEndHour       = parseInt(document.getElementById('rule-break-end').value)   ?? 17;
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
         rules.quickProjectFilter      = document.getElementById('rule-project-filter').value.trim();
         rules.daysCollapsedByDefault  = document.getElementById('rule-days-collapsed').checked;
@@ -3575,6 +3613,8 @@
         quickProjectFilter:      '',
         daysCollapsedByDefault:  false,
         uiFontSize:              12,
+        breakStartHour:          16,
+        breakEndHour:            17,
         quickTaskGroups: [
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },

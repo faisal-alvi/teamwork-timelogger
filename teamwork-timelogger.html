@@ -1038,6 +1038,43 @@
             color: var(--text-dimmer); font-size: 13px;
         }
 
+        /* ===== MONTH REPORT ===== */
+        .report-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.35); backdrop-filter: blur(4px);
+            z-index: 150; align-items: center; justify-content: center;
+            padding: 24px;
+        }
+        .report-overlay.open { display: flex; }
+
+        .report-panel {
+            background: var(--surface);
+            width: 100%; max-width: 560px;
+            max-height: calc(100vh - 48px); overflow-y: auto;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+            border-radius: 16px;
+            display: flex; flex-direction: column;
+        }
+
+        .report-header {
+            padding: 18px 24px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; background: var(--surface);
+            border-radius: 16px 16px 0 0; z-index: 10;
+        }
+
+        .report-header h2 { font-size: 15px; font-weight: 700; margin-right: 12px; }
+
+        .report-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
+
+        .report-footer {
+            padding: 14px 20px;
+            border-top: 1px solid var(--border);
+            display: flex; gap: 8px; align-items: center;
+            position: sticky; bottom: 0; background: var(--surface);
+        }
+
         /* Hide spinners on compact number inputs */
         #linear-h, #linear-m {
             -moz-appearance: textfield;
@@ -1113,6 +1150,10 @@
 
 <!-- Main App -->
 <div id="main-app">
+    <div id="day-change-banner" style="display:none;background:#7c3aed;color:#fff;padding:10px 20px;display:none;align-items:center;justify-content:center;gap:14px;font-size:13px;font-weight:600;position:sticky;top:0;z-index:100;">
+        <span>⚠ The date has changed since this page was opened. Entries may log to the wrong day — please reload.</span>
+        <button onclick="location.reload()" style="background:#fff;color:#7c3aed;border:none;border-radius:6px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer;">Reload Now</button>
+    </div>
     <header class="app-header">
         <h1>
             <span class="status-dot" id="status-dot"></span>
@@ -1125,6 +1166,7 @@
                 <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
+            <button class="settings-btn" onclick="openMonthReport()">📅 Month Report</button>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
             <button class="settings-btn" onclick="openSettings()">Settings</button>
             <a id="github-link" href="https://github.com/faisal-alvi/teamwork-timelogger" target="_blank"
@@ -1267,6 +1309,10 @@
                 <div class="week-total-badge">
                     <div class="wt-num" id="week-total-num">0:00</div>
                     <div class="wt-label">this week</div>
+                </div>
+                <div style="display:flex;gap:6px;">
+                    <button class="settings-btn" onclick="expandAllDays()" title="Expand all days">↕ Expand all</button>
+                    <button class="settings-btn" onclick="collapseAllDays()" title="Collapse all days">↕ Collapse all</button>
                 </div>
             </div>
 
@@ -1509,6 +1555,31 @@
     </div>
 </div>
 
+<!-- Month Report Panel -->
+<div class="report-overlay" id="report-overlay" onclick="closeReportIfOutside(event)">
+    <div class="report-panel">
+        <div class="report-header">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <h2>📅 Month Report</h2>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <button class="icon-btn" onclick="changeReportMonth(-1)">←</button>
+                    <span id="report-month-label" style="font-size:13px;font-weight:700;min-width:130px;text-align:center;color:var(--text-dim);"></span>
+                    <button class="icon-btn" onclick="changeReportMonth(1)">→</button>
+                </div>
+            </div>
+            <button class="bulk-close" onclick="closeMonthReport()">✕</button>
+        </div>
+        <div class="report-body" id="report-body">
+            <div class="preview-empty">Loading…</div>
+        </div>
+        <div class="report-footer">
+            <div style="flex:1;font-size:12px;color:var(--text-dim);" id="report-total-line"></div>
+            <button class="btn btn-ghost" onclick="copyMonthReport()" style="font-size:12px;">Copy</button>
+            <button class="btn btn-ghost" onclick="closeMonthReport()" style="font-size:12px;">Close</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1516,6 +1587,7 @@
     let config       = { site: '', apiKey: '', userId: '' };
     let weekStart    = getMonday(new Date());
     let targetDate   = new Date();          // the day we're logging INTO
+    const launchDateKey = toDayKey(new Date()); // captured at page load to detect midnight rollover
     let projects     = [];
     let projectTasks = {};
     let quickTasks       = [];              // flat union of all groups (for prefix map / search)
@@ -1627,6 +1699,8 @@
         loadProjects(); // loadQuickTasks() is called inside after projects are ready
         loadWeekData();
         initNotifications();
+        setInterval(checkDayChange, 60 * 1000);
+        checkDayChange();
     }
 
     // ─── Projects / Tasks ─────────────────────────────────────────────────────
@@ -1725,6 +1799,14 @@
 
     function entryMins(e) {
         return (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
+    }
+
+    function fmtMins(mins) {
+        const h = Math.floor(mins / 60);
+        const m = Math.round(mins % 60);
+        if (h === 0) return `${m}m`;
+        if (m === 0) return `${h}h`;
+        return `${h}h ${m}m`;
     }
 
     function timeStrToMins(t) {
@@ -2212,21 +2294,21 @@
 
         let overallPaceLine = '';
         if (isCurrentWeek && totalLogged < dailyTarget * 5) {
-            const absDiffH = Math.abs(overallDiff / 60).toFixed(1);
+            const absDiffH = fmtMins(Math.abs(overallDiff));
             if (Math.abs(overallDiff) < 6) {
                 overallPaceLine = `<span style="color:#059669;font-weight:700;">✓ On track</span>`;
             } else if (overallDiff < 0) {
                 const col = totalLogged < dangerThreshold ? 'var(--danger)' : '#d97706';
-                overallPaceLine = `<span style="color:${col};font-weight:700;">⚠ ${absDiffH}h behind for ${todayLabel}</span>`;
+                overallPaceLine = `<span style="color:${col};font-weight:700;">⚠ ${absDiffH} behind for ${todayLabel}</span>`;
             } else {
-                overallPaceLine = `<span style="color:#059669;font-weight:700;">↑ ${absDiffH}h ahead for ${todayLabel}</span>`;
+                overallPaceLine = `<span style="color:#059669;font-weight:700;">↑ ${absDiffH} ahead for ${todayLabel}</span>`;
             }
         }
 
-        const overallLoggedH  = (totalLogged / 60).toFixed(1);
+        const overallLoggedH  = fmtMins(totalLogged);
         const overallWeekTarget = (rules.dailyTargetHours || 8) * 5;
-        const overallExpectedH  = (overallExpected / 60).toFixed(1);
-        const overallRemainH    = (overallRemaining / 60).toFixed(1);
+        const overallExpectedH  = fmtMins(overallExpected);
+        const overallRemainH    = fmtMins(overallRemaining);
         const weekMet = totalLogged >= dailyTarget * 5;
 
         const overallCard = `<div style="width:100%;background:var(--surface);border:1.5px solid var(--border);
@@ -2242,10 +2324,10 @@
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <span style="font-size:10px;font-weight:700;color:${overallPctColor};">${overallBarPct}%</span>
-                <span style="font-size:10px;color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + 'h left this week'}</span>
+                <span style="font-size:10px;color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + ' left this week'}</span>
             </div>
             ${isCurrentWeek ? `<div style="font-size:10px;font-weight:600;margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);">
-                Expected by ${todayLabel}: <strong>${overallExpectedH}h</strong>
+                Expected by ${todayLabel}: <strong>${overallExpectedH}</strong>
                 &nbsp;·&nbsp;${overallPaceLine}
             </div>` : ''}
         </div>`;
@@ -2284,30 +2366,30 @@
                 fillColor = 'var(--accent)'; pctColor = 'var(--accent)';
             }
 
-            const loggedH = (logged / 60).toFixed(1);
+            const loggedH = fmtMins(logged);
             const targetH = g.targetHours;
-            const remainH = (remaining / 60).toFixed(1);
+            const remainH = fmtMins(remaining);
 
             // ── Pace line (only shown for current week, goal not yet met) ──
             let paceLine = '';
             if (isCurrentWeek && !met && target > 0) {
                 const paceTarget = target * daysElapsed / 5;   // expected mins by today
                 const paceDiff   = logged - paceTarget;         // +ve = ahead, -ve = behind
-                const absDiffH = Math.abs(paceDiff / 60).toFixed(1);
+                const absDiffH = fmtMins(Math.abs(paceDiff));
                 if (Math.abs(paceDiff) < 6) {
                     paceLine = `<div class="goal-pace" style="color:#059669;">✓ On track for ${todayLabel}</div>`;
                 } else if (paceDiff < 0) {
                     const color = logged < projPaceYesterday ? 'var(--danger)' : '#d97706';
-                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH}h behind for ${todayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH} behind for ${todayLabel}</div>`;
                 } else {
-                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH}h ahead for ${todayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH} ahead for ${todayLabel}</div>`;
                 }
             }
 
-            const statusMsg = met ? '✓ Goal met!' : `${remainH}h left`;
+            const statusMsg = met ? '✓ Goal met!' : `${remainH} left`;
 
             return `<div class="goal-card${met ? ' goal-met' : ''}"
-                title="${esc(g.name)}: ${loggedH}h logged of ${targetH}h target this week">
+                title="${esc(g.name)}: ${loggedH} logged of ${targetH}h target this week">
                 <div class="goal-card-top">
                     <span class="goal-name">${esc(g.name)}</span>
                     <span class="goal-nums">${loggedH}<span style="color:var(--text-dimmer);">/${targetH}h</span></span>
@@ -2330,6 +2412,14 @@
         if (event.target.closest('.add-btn') || event.target.closest('.inline-add')) return;
         const block = document.querySelector(`.day-block[data-key="${key}"]`);
         block.classList.toggle('collapsed');
+    }
+
+    function expandAllDays() {
+        document.querySelectorAll('.day-block').forEach(b => b.classList.remove('collapsed'));
+    }
+
+    function collapseAllDays() {
+        document.querySelectorAll('.day-block').forEach(b => b.classList.add('collapsed'));
     }
 
     // ─── Inline add ───────────────────────────────────────────────────────────
@@ -3385,6 +3475,14 @@
         }
     }
 
+    // ─── Midnight day-change detection ────────────────────────────────────────
+    function checkDayChange() {
+        if (toDayKey(new Date()) !== launchDateKey) {
+            const banner = document.getElementById('day-change-banner');
+            if (banner) banner.style.display = 'flex';
+        }
+    }
+
     // ─── 7 PM end-of-day notification ─────────────────────────────────────────
     function initNotifications() {
         if (!('Notification' in window)) return;
@@ -4048,6 +4146,135 @@
 
         document.getElementById('bulk-publish-note').textContent = noteText;
         document.getElementById('bulk-publish-btn').disabled = allAction.length === 0;
+    }
+
+    // ─── Month Report ─────────────────────────────────────────────────────────
+    let reportMonthDate = new Date();
+    let _lastReportData = null;
+
+    function openMonthReport() {
+        reportMonthDate = new Date();
+        reportMonthDate.setDate(1);
+        document.getElementById('report-overlay').classList.add('open');
+        loadMonthReport();
+    }
+
+    function closeMonthReport() {
+        document.getElementById('report-overlay').classList.remove('open');
+    }
+
+    function closeReportIfOutside(event) {
+        if (event.target === document.getElementById('report-overlay')) closeMonthReport();
+    }
+
+    function changeReportMonth(delta) {
+        reportMonthDate.setMonth(reportMonthDate.getMonth() + delta);
+        loadMonthReport();
+    }
+
+    async function loadMonthReport() {
+        const body  = document.getElementById('report-body');
+        const label = document.getElementById('report-month-label');
+        const totalLine = document.getElementById('report-total-line');
+
+        label.textContent = reportMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        body.innerHTML = '<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Loading…</div>';
+        totalLine.textContent = '';
+        _lastReportData = null;
+
+        const year     = reportMonthDate.getFullYear();
+        const month    = reportMonthDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay  = new Date(year, month + 1, 0);
+        const fromDate = toApiDate(firstDay);
+        const toDate   = toApiDate(lastDay);
+        const uf       = config.userId ? `&userId=${config.userId}` : '';
+
+        let allEntries = [];
+        let page = 1;
+        try {
+            while (true) {
+                const data    = await apiGet(`/time_entries.json?fromdate=${fromDate}&todate=${toDate}&pageSize=500&page=${page}${uf}`);
+                const entries = data['time-entries'] || data['timeEntries'] || [];
+                allEntries    = allEntries.concat(entries);
+                if (entries.length < 500) break;
+                page++;
+            }
+        } catch (e) {
+            body.innerHTML = `<div class="preview-empty" style="color:var(--danger);">Failed to load: ${esc(e.message)}</div>`;
+            return;
+        }
+
+        renderMonthReport(allEntries);
+    }
+
+    function renderMonthReport(entries) {
+        const body      = document.getElementById('report-body');
+        const totalLine = document.getElementById('report-total-line');
+
+        if (!entries.length) {
+            body.innerHTML = '<div class="preview-empty">No time entries for this month.</div>';
+            totalLine.textContent = '';
+            return;
+        }
+
+        // Aggregate by project
+        const projMap  = {};
+        let totalMins  = 0;
+        entries.forEach(e => {
+            const pid  = String(e['project-id'] || 'unknown');
+            const name = e['project-name'] || 'Unknown Project';
+            const mins = entryMins(e);
+            if (!projMap[pid]) projMap[pid] = { name, mins: 0 };
+            projMap[pid].mins += mins;
+            totalMins += mins;
+        });
+
+        const sorted = Object.entries(projMap).sort((a, b) => b[1].mins - a[1].mins);
+        const monthStr = document.getElementById('report-month-label').textContent;
+        _lastReportData = { monthStr, projects: sorted.map(([, p]) => p), totalMins };
+
+        let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+        sorted.forEach(([pid, proj]) => {
+            const color  = projectColor(pid);
+            const pct    = totalMins > 0 ? Math.round(proj.mins / totalMins * 100) : 0;
+            const logged = fmtMins(proj.mins);
+            html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 14px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <div style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+                    <div style="font-size:13px;font-weight:700;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(proj.name)}</div>
+                    <div style="font-size:14px;font-weight:800;color:${color};white-space:nowrap;">${logged}</div>
+                    <div style="font-size:11px;color:var(--text-dim);white-space:nowrap;min-width:34px;text-align:right;">${pct}%</div>
+                </div>
+                <div style="height:4px;background:var(--surface-2);border-radius:10px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:${color};border-radius:10px;transition:width 0.3s;"></div>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+
+        body.innerHTML = html;
+        totalLine.innerHTML = `<strong>${sorted.length} project${sorted.length !== 1 ? 's' : ''}</strong> &nbsp;·&nbsp; Total: <strong style="color:var(--accent);">${fmtMins(totalMins)}</strong>`;
+    }
+
+    function copyMonthReport() {
+        if (!_lastReportData) { toast('Nothing to copy', 'error'); return; }
+        const { monthStr, projects, totalMins } = _lastReportData;
+        const hr = '─'.repeat(32);
+        let text = `Month Report: ${monthStr}\n${hr}\n`;
+        projects.forEach(p => {
+            const h   = Math.floor(p.mins / 60);
+            const m   = p.mins % 60;
+            const pct = totalMins > 0 ? Math.round(p.mins / totalMins * 100) : 0;
+            const time = m > 0 ? `${h}h ${m}m` : `${h}h`;
+            text += `${p.name}: ${time} (${pct}%)\n`;
+        });
+        const th = Math.floor(totalMins / 60);
+        const tm = totalMins % 60;
+        text += `${hr}\nTotal: ${tm > 0 ? `${th}h ${tm}m` : `${th}h`}\n`;
+        navigator.clipboard.writeText(text)
+            .then(() => toast('Copied!', 'success'))
+            .catch(() => toast('Copy failed', 'error'));
     }
 
     init();
