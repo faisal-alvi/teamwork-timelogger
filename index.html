@@ -1150,6 +1150,10 @@
 
 <!-- Main App -->
 <div id="main-app">
+    <div id="day-change-banner" style="display:none;background:#7c3aed;color:#fff;padding:10px 20px;display:none;align-items:center;justify-content:center;gap:14px;font-size:13px;font-weight:600;position:sticky;top:0;z-index:100;">
+        <span>⚠ The date has changed since this page was opened. Entries may log to the wrong day — please reload.</span>
+        <button onclick="location.reload()" style="background:#fff;color:#7c3aed;border:none;border-radius:6px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer;">Reload Now</button>
+    </div>
     <header class="app-header">
         <h1>
             <span class="status-dot" id="status-dot"></span>
@@ -1387,19 +1391,6 @@
 
             <div class="rule-row">
                 <div class="rule-label">
-                    Break / lunch window
-                    <div class="rule-desc">No entries will be placed in this time range</div>
-                </div>
-                <div class="rule-control" style="gap:6px;">
-                    <input class="rule-input" type="number" id="rule-break-start" min="0" max="23" step="1" style="width:60px;">
-                    <span style="font-size:12px;color:var(--text-dim);">to</span>
-                    <input class="rule-input" type="number" id="rule-break-end" min="0" max="23" step="1" style="width:60px;">
-                    <span style="font-size:12px;color:var(--text-dim);">h</span>
-                </div>
-            </div>
-
-            <div class="rule-row">
-                <div class="rule-label">
                     Extension cap warning
                     <div class="rule-desc">Show a badge when an entry is extended beyond this %</div>
                 </div>
@@ -1597,6 +1588,7 @@
     let config       = { site: '', apiKey: '', userId: '' };
     let weekStart    = getMonday(new Date());
     let targetDate   = new Date();          // the day we're logging INTO
+    const launchDateKey = toDayKey(new Date()); // captured at page load to detect midnight rollover
     let projects     = [];
     let projectTasks = {};
     let quickTasks       = [];              // flat union of all groups (for prefix map / search)
@@ -1708,6 +1700,8 @@
         loadProjects(); // loadQuickTasks() is called inside after projects are ready
         loadWeekData();
         initNotifications();
+        setInterval(checkDayChange, 60 * 1000);
+        checkDayChange();
     }
 
     // ─── Projects / Tasks ─────────────────────────────────────────────────────
@@ -1808,15 +1802,17 @@
         return (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
     }
 
+    function fmtMins(mins) {
+        const h = Math.floor(mins / 60);
+        const m = Math.round(mins % 60);
+        if (h === 0) return `${m}m`;
+        if (m === 0) return `${h}h`;
+        return `${h}h ${m}m`;
+    }
+
     function timeStrToMins(t) {
         const parts = (t || '13:00').split(':');
         return parseInt(parts[0]) * 60 + (parseInt(parts[1]) || 0);
-    }
-
-    function skipBreak(mins) {
-        const start = (rules.breakStartHour ?? 16) * 60;
-        const end   = (rules.breakEndHour   ?? 17) * 60;
-        return (mins >= start && mins < end) ? end : mins;
     }
 
     function nextStartTime(dayKey) {
@@ -1827,7 +1823,6 @@
             const end   = start + (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
             if (end > maxEnd) maxEnd = end;
         });
-        maxEnd = skipBreak(maxEnd);
         return `${String(Math.floor(maxEnd / 60)).padStart(2,'0')}:${String(maxEnd % 60).padStart(2,'0')}`;
     }
 
@@ -1850,9 +1845,8 @@
         if (!needsFix) return;
 
         const dateStr = dayKey.replace(/-/g, '');
-        let cur = skipBreak(13 * 60);
+        let cur = 13 * 60;
         const updates = sorted.map(e => {
-            cur = skipBreak(cur);
             const h = Math.floor(cur / 60), m = cur % 60;
             const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
             cur += entryMins(e);
@@ -2301,21 +2295,21 @@
 
         let overallPaceLine = '';
         if (isCurrentWeek && totalLogged < dailyTarget * 5) {
-            const absDiffH = Math.abs(overallDiff / 60).toFixed(1);
+            const absDiffH = fmtMins(Math.abs(overallDiff));
             if (Math.abs(overallDiff) < 6) {
                 overallPaceLine = `<span style="color:#059669;font-weight:700;">✓ On track</span>`;
             } else if (overallDiff < 0) {
                 const col = totalLogged < dangerThreshold ? 'var(--danger)' : '#d97706';
-                overallPaceLine = `<span style="color:${col};font-weight:700;">⚠ ${absDiffH}h behind for ${todayLabel}</span>`;
+                overallPaceLine = `<span style="color:${col};font-weight:700;">⚠ ${absDiffH} behind for ${todayLabel}</span>`;
             } else {
-                overallPaceLine = `<span style="color:#059669;font-weight:700;">↑ ${absDiffH}h ahead for ${todayLabel}</span>`;
+                overallPaceLine = `<span style="color:#059669;font-weight:700;">↑ ${absDiffH} ahead for ${todayLabel}</span>`;
             }
         }
 
-        const overallLoggedH  = (totalLogged / 60).toFixed(1);
+        const overallLoggedH  = fmtMins(totalLogged);
         const overallWeekTarget = (rules.dailyTargetHours || 8) * 5;
-        const overallExpectedH  = (overallExpected / 60).toFixed(1);
-        const overallRemainH    = (overallRemaining / 60).toFixed(1);
+        const overallExpectedH  = fmtMins(overallExpected);
+        const overallRemainH    = fmtMins(overallRemaining);
         const weekMet = totalLogged >= dailyTarget * 5;
 
         const overallCard = `<div style="width:100%;background:var(--surface);border:1.5px solid var(--border);
@@ -2331,10 +2325,10 @@
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <span style="font-size:10px;font-weight:700;color:${overallPctColor};">${overallBarPct}%</span>
-                <span style="font-size:10px;color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + 'h left this week'}</span>
+                <span style="font-size:10px;color:var(--text-dimmer);">${weekMet ? '✓ Week goal met!' : overallRemainH + ' left this week'}</span>
             </div>
             ${isCurrentWeek ? `<div style="font-size:10px;font-weight:600;margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);">
-                Expected by ${todayLabel}: <strong>${overallExpectedH}h</strong>
+                Expected by ${todayLabel}: <strong>${overallExpectedH}</strong>
                 &nbsp;·&nbsp;${overallPaceLine}
             </div>` : ''}
         </div>`;
@@ -2373,30 +2367,30 @@
                 fillColor = 'var(--accent)'; pctColor = 'var(--accent)';
             }
 
-            const loggedH = (logged / 60).toFixed(1);
+            const loggedH = fmtMins(logged);
             const targetH = g.targetHours;
-            const remainH = (remaining / 60).toFixed(1);
+            const remainH = fmtMins(remaining);
 
             // ── Pace line (only shown for current week, goal not yet met) ──
             let paceLine = '';
             if (isCurrentWeek && !met && target > 0) {
                 const paceTarget = target * daysElapsed / 5;   // expected mins by today
                 const paceDiff   = logged - paceTarget;         // +ve = ahead, -ve = behind
-                const absDiffH = Math.abs(paceDiff / 60).toFixed(1);
+                const absDiffH = fmtMins(Math.abs(paceDiff));
                 if (Math.abs(paceDiff) < 6) {
                     paceLine = `<div class="goal-pace" style="color:#059669;">✓ On track for ${todayLabel}</div>`;
                 } else if (paceDiff < 0) {
                     const color = logged < projPaceYesterday ? 'var(--danger)' : '#d97706';
-                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH}h behind for ${todayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:${color};">⚠ ${absDiffH} behind for ${todayLabel}</div>`;
                 } else {
-                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH}h ahead for ${todayLabel}</div>`;
+                    paceLine = `<div class="goal-pace" style="color:#059669;">↑ ${absDiffH} ahead for ${todayLabel}</div>`;
                 }
             }
 
-            const statusMsg = met ? '✓ Goal met!' : `${remainH}h left`;
+            const statusMsg = met ? '✓ Goal met!' : `${remainH} left`;
 
             return `<div class="goal-card${met ? ' goal-met' : ''}"
-                title="${esc(g.name)}: ${loggedH}h logged of ${targetH}h target this week">
+                title="${esc(g.name)}: ${loggedH} logged of ${targetH}h target this week">
                 <div class="goal-card-top">
                     <span class="goal-name">${esc(g.name)}</span>
                     <span class="goal-nums">${loggedH}<span style="color:var(--text-dimmer);">/${targetH}h</span></span>
@@ -3036,7 +3030,7 @@
         });
 
         document.getElementById('log-hours').value   = 0;
-        document.getElementById('log-minutes').value = 30;
+        document.getElementById('log-minutes').value = 15;
         document.getElementById('log-description').value = '';
         document.querySelectorAll('.quick-time').forEach(b => b.classList.remove('active'));
 
@@ -3058,8 +3052,6 @@
         document.getElementById('rule-rounding').value       = rules.roundingMins;
         document.getElementById('rule-daily-target').value   = rules.dailyTargetHours;
         document.getElementById('rule-daily-cap').value      = rules.dailyCapHours;
-        document.getElementById('rule-break-start').value    = rules.breakStartHour ?? 16;
-        document.getElementById('rule-break-end').value      = rules.breakEndHour   ?? 17;
         document.getElementById('rule-ext-cap').value        = rules.extensionCapPct;
         document.getElementById('rule-project-filter').value   = rules.quickProjectFilter;
         document.getElementById('rule-days-collapsed').checked  = !!rules.daysCollapsedByDefault;
@@ -3227,8 +3219,6 @@
         rules.roundingMins       = parseInt(document.getElementById('rule-rounding').value)    || 5;
         rules.dailyTargetHours   = parseFloat(document.getElementById('rule-daily-target').value) || 8;
         rules.dailyCapHours      = parseFloat(document.getElementById('rule-daily-cap').value) || 9;
-        rules.breakStartHour     = parseInt(document.getElementById('rule-break-start').value) ?? 16;
-        rules.breakEndHour       = parseInt(document.getElementById('rule-break-end').value)   ?? 17;
         rules.extensionCapPct    = parseInt(document.getElementById('rule-ext-cap').value)     || 150;
         rules.quickProjectFilter      = document.getElementById('rule-project-filter').value.trim();
         rules.daysCollapsedByDefault  = document.getElementById('rule-days-collapsed').checked;
@@ -3486,6 +3476,14 @@
         }
     }
 
+    // ─── Midnight day-change detection ────────────────────────────────────────
+    function checkDayChange() {
+        if (toDayKey(new Date()) !== launchDateKey) {
+            const banner = document.getElementById('day-change-banner');
+            if (banner) banner.style.display = 'flex';
+        }
+    }
+
     // ─── 7 PM end-of-day notification ─────────────────────────────────────────
     function initNotifications() {
         if (!('Notification' in window)) return;
@@ -3676,8 +3674,6 @@
         quickProjectFilter:      '',
         daysCollapsedByDefault:  false,
         uiFontSize:              12,
-        breakStartHour:          16,
-        breakEndHour:            17,
         quickTaskGroups: [
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },
@@ -4223,6 +4219,7 @@
             return;
         }
 
+        // Aggregate by project
         const projMap  = {};
         let totalMins  = 0;
         entries.forEach(e => {
