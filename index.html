@@ -1560,12 +1560,33 @@
 <div class="report-overlay" id="report-overlay" onclick="closeReportIfOutside(event)">
     <div class="report-panel">
         <div class="report-header">
-            <div style="display:flex;align-items:center;gap:10px;">
-                <h2>📅 Month Report</h2>
-                <div style="display:flex;align-items:center;gap:6px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <h2>📅 Report</h2>
+                <!-- Mode toggle -->
+                <div style="display:flex;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;">
+                    <button id="report-mode-month" onclick="setReportMode('month')"
+                        style="padding:4px 12px;font-size:11px;font-weight:700;border:none;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.15s;">Month</button>
+                    <button id="report-mode-custom" onclick="setReportMode('custom')"
+                        style="padding:4px 12px;font-size:11px;font-weight:700;border:none;cursor:pointer;background:var(--surface-2);color:var(--text-dim);transition:all 0.15s;">Custom</button>
+                </div>
+                <!-- Month mode controls -->
+                <div id="report-ctrl-month" style="display:flex;align-items:center;gap:6px;">
                     <button class="icon-btn" onclick="changeReportMonth(-1)">←</button>
                     <span id="report-month-label" style="font-size:13px;font-weight:700;min-width:130px;text-align:center;color:var(--text-dim);"></span>
                     <button class="icon-btn" onclick="changeReportMonth(1)">→</button>
+                </div>
+                <!-- Custom range controls -->
+                <div id="report-ctrl-custom" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <input type="date" id="report-custom-from"
+                        style="padding:4px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;cursor:pointer;"
+                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+                        onkeydown="if(event.key==='Enter')loadCustomReport()">
+                    <span style="font-size:11px;color:var(--text-dim);font-weight:600;">to</span>
+                    <input type="date" id="report-custom-to"
+                        style="padding:4px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;cursor:pointer;"
+                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+                        onkeydown="if(event.key==='Enter')loadCustomReport()">
+                    <button class="btn btn-primary" onclick="loadCustomReport()" style="padding:4px 12px;font-size:12px;">Load</button>
                 </div>
             </div>
             <button class="bulk-close" onclick="closeMonthReport()">✕</button>
@@ -4149,14 +4170,16 @@
         document.getElementById('bulk-publish-btn').disabled = allAction.length === 0;
     }
 
-    // ─── Month Report ─────────────────────────────────────────────────────────
+    // ─── Month / Custom Report ────────────────────────────────────────────────
     let reportMonthDate = new Date();
     let _lastReportData = null;
+    let _reportMode     = 'month'; // 'month' | 'custom'
 
     function openMonthReport() {
         reportMonthDate = new Date();
         reportMonthDate.setDate(1);
         document.getElementById('report-overlay').classList.add('open');
+        setReportMode('month');
         loadMonthReport();
     }
 
@@ -4168,31 +4191,62 @@
         if (event.target === document.getElementById('report-overlay')) closeMonthReport();
     }
 
+    function setReportMode(mode) {
+        _reportMode = mode;
+        const isMonth  = mode === 'month';
+        document.getElementById('report-ctrl-month').style.display  = isMonth  ? 'flex' : 'none';
+        document.getElementById('report-ctrl-custom').style.display = !isMonth ? 'flex' : 'none';
+        // Toggle button styles
+        document.getElementById('report-mode-month').style.background  = isMonth  ? 'var(--accent)' : 'var(--surface-2)';
+        document.getElementById('report-mode-month').style.color       = isMonth  ? '#fff'           : 'var(--text-dim)';
+        document.getElementById('report-mode-custom').style.background = !isMonth ? 'var(--accent)' : 'var(--surface-2)';
+        document.getElementById('report-mode-custom').style.color      = !isMonth ? '#fff'           : 'var(--text-dim)';
+
+        if (mode === 'custom') {
+            // Pre-fill custom dates to current month if empty
+            const from = document.getElementById('report-custom-from');
+            const to   = document.getElementById('report-custom-to');
+            if (!from.value) {
+                const y = reportMonthDate.getFullYear(), m = reportMonthDate.getMonth();
+                from.value = toDayKey(new Date(y, m, 1));
+                to.value   = toDayKey(new Date(y, m + 1, 0));
+            }
+        }
+    }
+
     function changeReportMonth(delta) {
         reportMonthDate.setMonth(reportMonthDate.getMonth() + delta);
         loadMonthReport();
     }
 
+    function loadCustomReport() {
+        const from = document.getElementById('report-custom-from').value;
+        const to   = document.getElementById('report-custom-to').value;
+        if (!from || !to) { toast('Pick both dates', 'error'); return; }
+        if (from > to)    { toast('Start must be before end', 'error'); return; }
+        fetchAndRenderReport(from.replace(/-/g, ''), to.replace(/-/g, ''), `${from} → ${to}`);
+    }
+
     async function loadMonthReport() {
-        const body  = document.getElementById('report-body');
-        const label = document.getElementById('report-month-label');
-        const totalLine = document.getElementById('report-total-line');
-
-        label.textContent = reportMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        body.innerHTML = '<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Loading…</div>';
-        totalLine.textContent = '';
-        _lastReportData = null;
-
         const year     = reportMonthDate.getFullYear();
         const month    = reportMonthDate.getMonth();
         const firstDay = new Date(year, month, 1);
         const lastDay  = new Date(year, month + 1, 0);
-        const fromDate = toApiDate(firstDay);
-        const toDate   = toApiDate(lastDay);
-        const uf       = config.userId ? `&userId=${config.userId}` : '';
+        const label    = reportMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        document.getElementById('report-month-label').textContent = label;
+        fetchAndRenderReport(toApiDate(firstDay), toApiDate(lastDay), label);
+    }
 
-        let allEntries = [];
-        let page = 1;
+    async function fetchAndRenderReport(fromDate, toDate, label) {
+        const body      = document.getElementById('report-body');
+        const totalLine = document.getElementById('report-total-line');
+
+        body.innerHTML = '<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Loading…</div>';
+        totalLine.textContent = '';
+        _lastReportData = null;
+
+        const uf = config.userId ? `&userId=${config.userId}` : '';
+        let allEntries = [], page = 1;
         try {
             while (true) {
                 const data    = await apiGet(`/time_entries.json?fromdate=${fromDate}&todate=${toDate}&pageSize=500&page=${page}${uf}`);
@@ -4206,22 +4260,21 @@
             return;
         }
 
-        renderMonthReport(allEntries);
+        renderMonthReport(allEntries, label);
     }
 
-    function renderMonthReport(entries) {
+    function renderMonthReport(entries, label) {
         const body      = document.getElementById('report-body');
         const totalLine = document.getElementById('report-total-line');
 
         if (!entries.length) {
-            body.innerHTML = '<div class="preview-empty">No time entries for this month.</div>';
+            body.innerHTML = '<div class="preview-empty">No time entries for this period.</div>';
             totalLine.textContent = '';
             return;
         }
 
-        // Aggregate by project
-        const projMap  = {};
-        let totalMins  = 0;
+        const projMap = {};
+        let totalMins = 0;
         entries.forEach(e => {
             const pid  = String(e['project-id'] || 'unknown');
             const name = e['project-name'] || 'Unknown Project';
@@ -4232,8 +4285,7 @@
         });
 
         const sorted = Object.entries(projMap).sort((a, b) => b[1].mins - a[1].mins);
-        const monthStr = document.getElementById('report-month-label').textContent;
-        _lastReportData = { monthStr, projects: sorted.map(([, p]) => p), totalMins };
+        _lastReportData = { label, projects: sorted.map(([, p]) => p), totalMins };
 
         let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
         sorted.forEach(([pid, proj]) => {
@@ -4260,9 +4312,9 @@
 
     function copyMonthReport() {
         if (!_lastReportData) { toast('Nothing to copy', 'error'); return; }
-        const { monthStr, projects, totalMins } = _lastReportData;
+        const { label, projects, totalMins } = _lastReportData;
         const hr = '─'.repeat(32);
-        let text = `Month Report: ${monthStr}\n${hr}\n`;
+        let text = `Report: ${label}\n${hr}\n`;
         projects.forEach(p => {
             const h   = Math.floor(p.mins / 60);
             const m   = p.mins % 60;
