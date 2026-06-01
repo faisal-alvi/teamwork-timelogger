@@ -1216,14 +1216,16 @@
                 <div class="quick-tasks-grid" id="quick-tasks-list"></div>
             </div>
 
-            <!-- Target day indicator -->
-            <div class="target-day-pill" id="target-day-pill">
-                📅 <span id="target-day-label">Today</span>
-            </div>
-
             <!-- Log form -->
             <div class="log-form-card">
                 <div class="section-label">Log Time</div>
+
+                <div class="form-group">
+                    <label>Date</label>
+                    <input type="date" id="log-date"
+                        style="cursor:pointer;"
+                        onchange="onLogDateChange(this.value)">
+                </div>
 
                 <div class="form-group">
                     <label>Project</label>
@@ -1886,17 +1888,9 @@
 
     // ─── Target day (for log form) ────────────────────────────────────────────
     function updateTargetDayLabel() {
-        const today = new Date();
-        const isToday = isSameDay(targetDate, today);
-        const yest = new Date(today); yest.setDate(yest.getDate() - 1);
-        const isYest = isSameDay(targetDate, yest);
-
-        let label;
-        if (isToday) label = 'Today';
-        else if (isYest) label = 'Yesterday';
-        else label = targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-
-        document.getElementById('target-day-label').textContent = label;
+        // Keep the log-date input in sync with targetDate
+        const el = document.getElementById('log-date');
+        if (el) el.value = toDayKey(targetDate);
     }
 
     function syncLinearDate() {
@@ -1913,6 +1907,12 @@
         const key = toDayKey(d);
         const block = document.querySelector(`.day-block[data-key="${key}"]`);
         if (block) block.classList.add('is-logging');
+    }
+
+    function onLogDateChange(val) {
+        if (!val) return;
+        const parts = val.split('-');
+        setTargetDate(new Date(+parts[0], +parts[1] - 1, +parts[2]));
     }
 
     // ─── Week navigation ──────────────────────────────────────────────────────
