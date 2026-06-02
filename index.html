@@ -1166,6 +1166,7 @@
                 <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
+            <button class="settings-btn" onclick="openTicketLookup()">🔍 Ticket Lookup</button>
             <button class="settings-btn" onclick="openMonthReport()">📅 Month Report</button>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
             <button class="settings-btn" onclick="openSettings()">Settings</button>
@@ -1217,7 +1218,7 @@
             </div>
 
             <!-- Log form -->
-            <div class="log-form-card">
+            <div class="log-form-card" id="log-form-card">
                 <div class="section-label">Log Time</div>
 
                 <div class="form-group">
@@ -1600,6 +1601,31 @@
             <div style="flex:1;font-size:12px;color:var(--text-dim);" id="report-total-line"></div>
             <button class="btn btn-ghost" onclick="copyMonthReport()" style="font-size:12px;">Copy</button>
             <button class="btn btn-ghost" onclick="closeMonthReport()" style="font-size:12px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="report-overlay" id="ticket-lookup-overlay" onclick="closeTicketLookupIfOutside(event)">
+    <div class="report-panel">
+        <div class="report-header">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <h2>🔍 Ticket Lookup</h2>
+                <input type="text" id="ticket-lookup-input"
+                    placeholder="Paste Linear URL or ticket ID (e.g. WOOACBK-69)…"
+                    autocomplete="off"
+                    style="flex:1;min-width:220px;padding:5px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;"
+                    onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+                    onkeydown="if(event.key==='Enter')searchTicketEntries()">
+                <button class="btn btn-primary" onclick="searchTicketEntries()" style="padding:5px 14px;font-size:12px;">Search</button>
+            </div>
+            <button class="bulk-close" onclick="closeTicketLookup()">✕</button>
+        </div>
+        <div class="report-body" id="ticket-lookup-body">
+            <div class="preview-empty">Paste a ticket ID or Linear URL above and press Search.</div>
+        </div>
+        <div class="report-footer">
+            <div style="flex:1;font-size:12px;color:var(--text-dim);" id="ticket-lookup-total"></div>
+            <button class="btn btn-ghost" onclick="closeTicketLookup()" style="font-size:12px;">Close</button>
         </div>
     </div>
 </div>
@@ -2190,6 +2216,7 @@
             </div>
             <div class="entry-hours">${h}:${String(m).padStart(2,'0')}</div>
             <div class="entry-actions">
+                <button class="dup" title="Lookup total time for this ticket" onclick="event.stopPropagation();lookupEntryTicket('${desc.replace(/'/g,"\\'")}')" style="font-size:12px;">🔍</button>
                 <button class="dup" title="Duplicate entry (pre-fills form)" onclick="event.stopPropagation();duplicateEntry('${e.id}')">⎘</button>
                 <button class="del" title="Delete" onclick="event.stopPropagation();deleteEntry('${e.id}')">✕</button>
             </div>
@@ -3055,6 +3082,7 @@
         document.getElementById('log-description').value = '';
         document.querySelectorAll('.quick-time').forEach(b => b.classList.remove('active'));
 
+        document.getElementById('log-form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
         toast('Form filled — edit if needed, then submit', 'success');
     }
 
@@ -4189,6 +4217,94 @@
 
     function closeReportIfOutside(event) {
         if (event.target === document.getElementById('report-overlay')) closeMonthReport();
+    }
+
+    // ─── Ticket Lookup ────────────────────────────────────────────────────────
+    function openTicketLookup() {
+        document.getElementById('ticket-lookup-overlay').classList.add('open');
+        document.getElementById('ticket-lookup-input').focus();
+    }
+
+    function closeTicketLookup() {
+        document.getElementById('ticket-lookup-overlay').classList.remove('open');
+    }
+
+    function closeTicketLookupIfOutside(event) {
+        if (event.target === document.getElementById('ticket-lookup-overlay')) closeTicketLookup();
+    }
+
+    function lookupEntryTicket(desc) {
+        const ticketId = extractLinearId(desc) || desc.trim();
+        if (!ticketId) { toast('No ticket ID found in this entry', 'error'); return; }
+        document.getElementById('ticket-lookup-input').value = ticketId;
+        openTicketLookup();
+        searchTicketEntries();
+    }
+
+    async function searchTicketEntries() {
+        const raw      = document.getElementById('ticket-lookup-input').value.trim();
+        const ticketId = extractLinearId(raw) || raw.toUpperCase();
+        const body     = document.getElementById('ticket-lookup-body');
+        const totalEl  = document.getElementById('ticket-lookup-total');
+
+        if (!ticketId) { toast('Enter a ticket ID or URL', 'error'); return; }
+
+        body.innerHTML = '<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Fetching all entries…</div>';
+        totalEl.textContent = '';
+
+        const uf = config.userId ? `&userId=${config.userId}` : '';
+        let allEntries = [], page = 1;
+        try {
+            while (true) {
+                const data    = await apiGet(`/time_entries.json?pageSize=500&page=${page}${uf}`);
+                const entries = data['time-entries'] || data['timeEntries'] || [];
+                allEntries    = allEntries.concat(entries);
+                if (entries.length < 500) break;
+                page++;
+            }
+        } catch (e) {
+            body.innerHTML = `<div class="preview-empty" style="color:var(--danger);">Failed to load: ${esc(e.message)}</div>`;
+            return;
+        }
+
+        // filter entries whose description contains the ticket ID (case-insensitive)
+        const needle  = ticketId.toUpperCase();
+        const matched = allEntries.filter(e => (e.description || '').toUpperCase().includes(needle));
+
+        if (!matched.length) {
+            body.innerHTML = `<div class="preview-empty">No entries found for <strong>${esc(ticketId)}</strong>.</div>`;
+            totalEl.textContent = '';
+            return;
+        }
+
+        // sort newest first
+        matched.sort((a, b) => {
+            const da = a.date || a['created-at'] || '';
+            const db = b.date || b['created-at'] || '';
+            return db.localeCompare(da);
+        });
+
+        let totalMins = 0;
+        const rows = matched.map(e => {
+            const mins  = entryMins(e);
+            totalMins  += mins;
+            const dateStr   = e.date ? e.date.slice(0, 10) : '—';
+            const timeStr   = fmtMins(mins);
+            const proj      = esc(e['project-name'] || '—');
+            const task      = esc(e['todo-item-name'] || '');
+            const desc      = esc(e.description || '');
+            return `<div style="display:grid;grid-template-columns:90px 60px 1fr;gap:6px 12px;align-items:start;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
+                <span style="color:var(--text-dim);white-space:nowrap;">${dateStr}</span>
+                <span style="font-weight:700;color:var(--accent);white-space:nowrap;">${timeStr}</span>
+                <span>
+                    <span style="color:var(--text-dim);">${proj}${task ? ' › ' + task : ''}</span>
+                    ${desc ? `<br><span style="color:var(--text);opacity:0.75;font-size:11px;">${desc}</span>` : ''}
+                </span>
+            </div>`;
+        }).join('');
+
+        body.innerHTML = `<div style="padding:0 2px;">${rows}</div>`;
+        totalEl.textContent = `${matched.length} entr${matched.length === 1 ? 'y' : 'ies'} · Total: ${fmtMins(totalMins)}`;
     }
 
     function setReportMode(mode) {
