@@ -1166,6 +1166,7 @@
                 <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
+            <button class="settings-btn" onclick="openTeamView()">👥 Team View</button>
             <button class="settings-btn" onclick="openTicketLookup()">🔍 Ticket Lookup</button>
             <button class="settings-btn" onclick="openMonthReport()">📅 Month Report</button>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
@@ -1601,6 +1602,37 @@
             <div style="flex:1;font-size:12px;color:var(--text-dim);" id="report-total-line"></div>
             <button class="btn btn-ghost" onclick="copyMonthReport()" style="font-size:12px;">Copy</button>
             <button class="btn btn-ghost" onclick="closeMonthReport()" style="font-size:12px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="report-overlay" id="team-view-overlay" onclick="closeTeamViewIfOutside(event)">
+    <div class="report-panel" style="max-width:960px;">
+        <div class="report-header">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;">
+                <h2 style="white-space:nowrap;">👥 Team View</h2>
+                <button class="icon-btn" onclick="teamViewShiftWeek(-7)" title="Previous week">←</button>
+                <input type="date" id="team-view-from"
+                    style="padding:5px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;cursor:pointer;"
+                    onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+                    onkeydown="if(event.key==='Enter')loadTeamView()">
+                <span style="font-size:11px;color:var(--text-dim);font-weight:600;white-space:nowrap;">to</span>
+                <input type="date" id="team-view-to"
+                    style="padding:5px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;cursor:pointer;"
+                    onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+                    onkeydown="if(event.key==='Enter')loadTeamView()">
+                <button class="icon-btn" onclick="teamViewShiftWeek(7)" title="Next week">→</button>
+                <button class="btn btn-primary" onclick="loadTeamView()" style="padding:5px 14px;font-size:12px;white-space:nowrap;">Load</button>
+            </div>
+            <button class="bulk-close" onclick="closeTeamView()">✕</button>
+        </div>
+        <div id="team-view-filters" style="display:none;padding:10px 24px 0;gap:6px;flex-wrap:wrap;"></div>
+        <div class="report-body" id="team-view-body">
+            <div class="preview-empty">Loading…</div>
+        </div>
+        <div class="report-footer">
+            <div style="flex:1;font-size:12px;color:var(--text-dim);" id="team-view-total"></div>
+            <button class="btn btn-ghost" onclick="closeTeamView()" style="font-size:12px;">Close</button>
         </div>
     </div>
 </div>
@@ -4231,6 +4263,272 @@
 
     function closeTicketLookupIfOutside(event) {
         if (event.target === document.getElementById('ticket-lookup-overlay')) closeTicketLookup();
+    }
+
+    // ─── Team View ────────────────────────────────────────────────────────────
+    // stored for filter chips re-render
+    let _teamViewEntries = [];
+    let _teamViewGrouped = false;
+    let _teamViewFilter  = 'All';
+
+    async function openTeamView() {
+        document.getElementById('team-view-overlay').classList.add('open');
+
+        // default date range = current week (Mon–Sun)
+        const today = new Date();
+        const mon   = new Date(today);
+        mon.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+        const sun   = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        document.getElementById('team-view-from').value = toDayKey(mon);
+        document.getElementById('team-view-to').value   = toDayKey(sun);
+
+        _teamViewGrouped = false;
+        _teamViewFilter  = 'All';
+        loadTeamView();
+    }
+
+    function closeTeamView() {
+        document.getElementById('team-view-overlay').classList.remove('open');
+    }
+
+    function closeTeamViewIfOutside(event) {
+        if (event.target === document.getElementById('team-view-overlay')) closeTeamView();
+    }
+
+    function personKey(e) {
+        return ((e['person-first-name'] || '') + ' ' + (e['person-last-name'] || '')).trim() || '—';
+    }
+
+    function fmtDayHeading(dateStr) {
+        // dateStr = "2026-06-10"
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const dt  = new Date(y, m - 1, d);
+        const day = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dt.getDay()];
+        const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1];
+        return `${day}, ${d} ${mon}`;
+    }
+
+    function teamViewShiftWeek(days) {
+        const fromEl = document.getElementById('team-view-from');
+        const toEl   = document.getElementById('team-view-to');
+        const f = new Date(fromEl.value + 'T00:00:00');
+        const t = new Date(toEl.value   + 'T00:00:00');
+        f.setDate(f.getDate() + days);
+        t.setDate(t.getDate() + days);
+        fromEl.value = toDayKey(f);
+        toEl.value   = toDayKey(t);
+        loadTeamView();
+    }
+
+    function teamViewTimeRange(e) {
+        const t = e.time || e['start-time'] || '';
+        if (!t) return '—';
+        const startM = timeStrToMins(t);
+        const endM   = startM + (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
+        const fmt = m => {
+            const hh = Math.floor(m / 60) % 24, mm = m % 60;
+            const p  = hh < 12 ? 'AM' : 'PM', h12 = hh % 12 || 12;
+            return `${h12}:${String(mm).padStart(2,'0')}${p}`;
+        };
+        return `${fmt(startM)} – ${fmt(endM)}`;
+    }
+
+    function personAvatar(e) {
+        const avatarUrl = e['person-avatar-url'] || '';
+        const first     = (e['person-first-name'] || '').trim();
+        const last      = (e['person-last-name']  || '').trim();
+        const initials  = ((first[0] || '') + (last[0] || '')).toUpperCase();
+        return avatarUrl
+            ? `<img src="${avatarUrl}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">`
+            : `<div style="width:24px;height:24px;border-radius:50%;background:var(--accent-light);color:var(--accent);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${esc(initials)}</div>`;
+    }
+
+    function entryRow(e, dayMinsRef, totalMinsRef) {
+        const mins = entryMins(e);
+        dayMinsRef.v   += mins;
+        totalMinsRef.v += mins;
+        const proj      = esc(e['project-name'] || '—');
+        const task      = esc(e['todo-item-name'] || '');
+        const desc      = esc(e.description || '');
+        const firstName = esc((e['person-first-name'] || '').trim());
+        const timeRange = teamViewTimeRange(e);
+
+        if (_teamViewGrouped) {
+            return `<div style="display:grid;grid-template-columns:130px 55px 1fr;gap:4px 10px;align-items:start;padding:6px 0 6px 12px;font-size:12px;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${timeRange}</span>
+                <span style="font-weight:700;color:var(--accent);white-space:nowrap;">${fmtMins(mins)}</span>
+                <span>
+                    <span style="color:var(--text-dim);">${proj}${task ? ' › ' + task : ''}</span>
+                    ${desc ? `<br><span style="color:var(--text);opacity:0.75;font-size:11px;">${desc}</span>` : ''}
+                </span>
+            </div>`;
+        } else {
+            return `<div style="display:grid;grid-template-columns:140px 130px 55px 1fr;gap:4px 10px;align-items:center;padding:6px 0 6px 4px;font-size:12px;border-bottom:1px solid var(--border);">
+                <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+                    ${personAvatar(e)}
+                    <span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${firstName}</span>
+                </div>
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${timeRange}</span>
+                <span style="font-weight:700;color:var(--accent);white-space:nowrap;">${fmtMins(mins)}</span>
+                <span>
+                    <span style="color:var(--text-dim);">${proj}${task ? ' › ' + task : ''}</span>
+                    ${desc ? `<br><span style="color:var(--text);opacity:0.75;font-size:11px;">${desc}</span>` : ''}
+                </span>
+            </div>`;
+        }
+    }
+
+    function renderTeamViewEntries(entries) {
+        const body    = document.getElementById('team-view-body');
+        const totalEl = document.getElementById('team-view-total');
+
+        if (!entries.length) {
+            body.innerHTML = '<div class="preview-empty">No entries for selection.</div>';
+            totalEl.textContent = '';
+            return;
+        }
+
+        const dateKeys = [...new Set(entries.map(e => (e.date || '').slice(0, 10)))].sort((a, b) => b.localeCompare(a));
+        const totalRef = { v: 0 };
+        let html = '';
+
+        for (const date of dateKeys) {
+            const dayEntries = entries.filter(e => (e.date || '').slice(0, 10) === date);
+            const dayRef = { v: 0 };
+            let inner = '';
+
+            if (_teamViewGrouped) {
+                // sub-group by person
+                const people = [...new Set(dayEntries.map(personKey))].sort();
+                for (const who of people) {
+                    const pEntries = dayEntries.filter(e => personKey(e) === who)
+                        .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+                    const personRef = { v: 0 };
+                    const rows = pEntries.map(e => entryRow(e, personRef, totalRef)).join('');
+                    dayRef.v += personRef.v;
+                    const avatarHtml = personAvatar(pEntries[0]);
+                    inner += `<div style="margin-bottom:4px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px 4px 10px;background:var(--surface-3,var(--surface-2));border-left:3px solid var(--accent);font-size:12px;font-weight:700;color:var(--text);">
+                            <div style="display:flex;align-items:center;gap:7px;">${avatarHtml}<span>${esc(who)}</span></div>
+                            <span style="color:var(--accent);">${fmtMins(personRef.v)}</span>
+                        </div>
+                        ${rows}
+                    </div>`;
+                }
+            } else {
+                // flat — sort all day entries ascending by start time
+                dayEntries.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+                inner = dayEntries.map(e => entryRow(e, dayRef, totalRef)).join('');
+            }
+
+            html += `<div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;background:var(--surface-2);border-radius:6px;font-size:13px;font-weight:700;color:var(--text-dim);margin-bottom:4px;">
+                    <span>${fmtDayHeading(date)}</span><span>${fmtMins(_teamViewGrouped ? dayRef.v : dayRef.v)}</span>
+                </div>
+                ${inner}
+            </div>`;
+        }
+
+        body.innerHTML = `<div style="padding:0 2px;">${html}</div>`;
+        totalEl.textContent = `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · Total: ${fmtMins(totalRef.v)}`;
+    }
+
+    function renderTeamViewFilters() {
+        const filtersEl = document.getElementById('team-view-filters');
+        if (!_teamViewEntries.length) { filtersEl.style.display = 'none'; return; }
+
+        const people = [...new Set(_teamViewEntries.map(personKey))].sort();
+
+        // mode toggle
+        const modeToggle = `<div style="display:flex;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;margin-right:6px;">
+            <button onclick="setTeamViewGrouped(false)"
+                style="padding:3px 12px;font-size:11px;font-weight:700;border:none;cursor:pointer;transition:all 0.15s;
+                       background:${!_teamViewGrouped ? 'var(--accent)' : 'var(--surface-2)'};
+                       color:${!_teamViewGrouped ? '#fff' : 'var(--text-dim)'};">Flat</button>
+            <button onclick="setTeamViewGrouped(true)"
+                style="padding:3px 12px;font-size:11px;font-weight:700;border:none;cursor:pointer;transition:all 0.15s;
+                       background:${_teamViewGrouped ? 'var(--accent)' : 'var(--surface-2)'};
+                       color:${_teamViewGrouped ? '#fff' : 'var(--text-dim)'};">By Person</button>
+        </div>`;
+
+        // person filter chips
+        const chips = ['All', ...people].map(name => {
+            const active = name === _teamViewFilter;
+            return `<button onclick="applyTeamViewFilter('${name.replace(/'/g,"\\'")}')"
+                style="padding:3px 12px;font-size:11px;font-weight:700;border-radius:20px;border:1.5px solid var(--border);cursor:pointer;
+                       background:${active ? 'var(--accent)' : 'var(--surface-2)'};
+                       color:${active ? '#fff' : 'var(--text-dim)'};transition:all 0.15s;">${esc(name)}</button>`;
+        }).join('');
+
+        filtersEl.style.display = 'flex';
+        filtersEl.style.alignItems = 'center';
+        filtersEl.style.paddingBottom = '10px';
+        filtersEl.innerHTML = modeToggle + chips;
+    }
+
+    function setTeamViewGrouped(grouped) {
+        _teamViewGrouped = grouped;
+        renderTeamViewFilters();
+        const filtered = _teamViewFilter === 'All' ? _teamViewEntries : _teamViewEntries.filter(e => personKey(e) === _teamViewFilter);
+        renderTeamViewEntries(filtered);
+    }
+
+    function applyTeamViewFilter(name) {
+        _teamViewFilter = name;
+        renderTeamViewFilters();
+        const filtered = name === 'All' ? _teamViewEntries : _teamViewEntries.filter(e => personKey(e) === name);
+        renderTeamViewEntries(filtered);
+    }
+
+    async function loadTeamView() {
+        const from    = document.getElementById('team-view-from').value;
+        const to      = document.getElementById('team-view-to').value;
+        const body    = document.getElementById('team-view-body');
+        const totalEl = document.getElementById('team-view-total');
+        const filtersEl = document.getElementById('team-view-filters');
+
+        if (!from || !to) { toast('Set date range', 'error'); return; }
+
+        body.innerHTML = '<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Loading…</div>';
+        totalEl.textContent = '';
+        filtersEl.style.display = 'none';
+        _teamViewEntries = [];
+
+        const ALLOWED_FIRST = ['dharmesh', 'sumit', 'pete', 'vikram', 'sid', 'pushpak', 'mukesh', 'faisal'];
+
+        const fromApi = from.replace(/-/g, '');
+        const toApi   = to.replace(/-/g, '');
+        let allEntries = [], page = 1;
+        try {
+            while (true) {
+                const data    = await apiGet(`/time_entries.json?fromdate=${fromApi}&todate=${toApi}&pageSize=500&page=${page}`);
+                const entries = data['time-entries'] || data['timeEntries'] || [];
+                allEntries    = allEntries.concat(entries);
+                if (entries.length < 500) break;
+                page++;
+            }
+        } catch (e) {
+            body.innerHTML = `<div class="preview-empty" style="color:var(--danger);">Failed to load: ${esc(e.message)}</div>`;
+            return;
+        }
+
+        allEntries = allEntries.filter(e => {
+            const first = (e['person-first-name'] || '').trim().toLowerCase();
+            const full  = (first + ' ' + (e['person-last-name'] || '').trim()).toLowerCase();
+            return ALLOWED_FIRST.some(n => first === n || full.startsWith(n));
+        });
+
+        if (!allEntries.length) {
+            body.innerHTML = `<div class="preview-empty">No entries for the team in this range.</div>`;
+            totalEl.textContent = '';
+            return;
+        }
+
+        _teamViewEntries = allEntries;
+        _teamViewFilter  = 'All';
+        renderTeamViewFilters();
+        renderTeamViewEntries(allEntries);
     }
 
     function lookupEntryTicket(desc) {
