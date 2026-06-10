@@ -1610,7 +1610,7 @@
 </div>
 
 <div class="report-overlay" id="team-view-overlay" onclick="closeTeamViewIfOutside(event)">
-    <div class="report-panel" style="max-width:960px;">
+    <div class="report-panel" style="max-width:min(95vw,1200px);">
         <div class="report-header">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;">
                 <h2 style="white-space:nowrap;">👥 Team View</h2>
@@ -4324,17 +4324,12 @@
         loadTeamView();
     }
 
-    function teamViewTimeRange(e) {
-        const t = e.time || e['start-time'] || '';
+    function tvFmtTime(t) {
         if (!t) return '—';
-        const startM = timeStrToMins(t);
-        const endM   = startM + (parseInt(e.hours) || 0) * 60 + (parseInt(e.minutes) || 0);
-        const fmt = m => {
-            const hh = Math.floor(m / 60) % 24, mm = m % 60;
-            const p  = hh < 12 ? 'AM' : 'PM', h12 = hh % 12 || 12;
-            return `${h12}:${String(mm).padStart(2,'0')}${p}`;
-        };
-        return `${fmt(startM)} – ${fmt(endM)}`;
+        const m  = timeStrToMins(t);
+        const hh = Math.floor(m / 60) % 24, mm = m % 60;
+        const p  = hh < 12 ? 'AM' : 'PM', h12 = hh % 12 || 12;
+        return `${h12}:${String(mm).padStart(2,'0')}${p}`;
     }
 
     function personAvatar(e) {
@@ -4347,37 +4342,74 @@
             : `<div style="width:24px;height:24px;border-radius:50%;background:var(--accent-light);color:var(--accent);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${esc(initials)}</div>`;
     }
 
+    // flat:    [who 140px][desc 1fr][tasklist 120px][start 75px][end 75px][time 60px]
+    // grouped: [desc 1fr][tasklist 120px][start 75px][end 75px][time 60px]
+    const TV_COLS_FLAT    = '140px 1fr 120px 75px 75px 60px';
+    const TV_COLS_GROUPED = '1fr 120px 75px 75px 60px';
+
+    function tvColStyle() {
+        return _teamViewGrouped ? TV_COLS_GROUPED : TV_COLS_FLAT;
+    }
+
+    function tvColHeader() {
+        const hStyle = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);padding:5px 6px;border-bottom:2px solid var(--border);';
+        const whoCol = _teamViewGrouped ? '' : `<span style="${hStyle}">Who</span>`;
+        return `<div style="display:grid;grid-template-columns:${tvColStyle()};gap:0 8px;padding:0 0 0 4px;position:sticky;top:0;background:var(--surface);z-index:2;">
+            ${whoCol}
+            <span style="${hStyle}">Description</span>
+            <span style="${hStyle}">Task List</span>
+            <span style="${hStyle}">Start</span>
+            <span style="${hStyle}">End</span>
+            <span style="${hStyle}">Time</span>
+        </div>`;
+    }
+
     function entryRow(e, dayMinsRef, totalMinsRef) {
-        const mins = entryMins(e);
+        const mins      = entryMins(e);
         dayMinsRef.v   += mins;
         totalMinsRef.v += mins;
-        const proj      = esc(e['project-name'] || '—');
-        const task      = esc(e['todo-item-name'] || '');
-        const desc      = esc(e.description || '');
-        const firstName = esc((e['person-first-name'] || '').trim());
-        const timeRange = teamViewTimeRange(e);
+
+        const taskName  = e['todo-item-name'] || '';
+        const taskList  = esc(e['todo-list-name'] || '—');
+        const rawDesc   = e.description || '';
+        const isUrl     = /^https?:\/\//.test(rawDesc);
+        const descHtml  = taskName
+            ? `<span style="font-size:11px;color:var(--text-dim);font-weight:600;">Task: ${esc(taskName)}</span>`
+            : '';
+        const descBody  = rawDesc
+            ? (isUrl
+                ? `<a href="${rawDesc}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);word-break:break-all;">${esc(rawDesc)}</a>`
+                : `<span style="font-size:12px;color:var(--text);">${esc(rawDesc)}</span>`)
+            : '';
+
+        const t         = e.time || e['start-time'] || '';
+        const startDisp = tvFmtTime(t);
+        const startM    = t ? timeStrToMins(t) : null;
+        const endM      = startM !== null ? startM + (parseInt(e.hours)||0)*60 + (parseInt(e.minutes)||0) : null;
+        const endStr    = endM !== null ? tvFmtTime(`${String(Math.floor(endM/60)).padStart(2,'0')}:${String(endM%60).padStart(2,'0')}`) : '—';
+
+        const rowStyle  = `display:grid;grid-template-columns:${tvColStyle()};gap:0 8px;align-items:start;padding:8px 4px;font-size:12px;border-bottom:1px solid var(--border);`;
 
         if (_teamViewGrouped) {
-            return `<div style="display:grid;grid-template-columns:130px 55px 1fr;gap:4px 10px;align-items:start;padding:6px 0 6px 12px;font-size:12px;border-bottom:1px solid var(--border);">
-                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${timeRange}</span>
+            return `<div style="${rowStyle}">
+                <div>${descHtml}${descHtml && descBody ? '<br>' : ''}${descBody}</div>
+                <span style="color:var(--text-dim);font-size:11px;">${taskList}</span>
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${startDisp}</span>
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${endStr}</span>
                 <span style="font-weight:700;color:var(--accent);white-space:nowrap;">${fmtMins(mins)}</span>
-                <span>
-                    <span style="color:var(--text-dim);">${proj}${task ? ' › ' + task : ''}</span>
-                    ${desc ? `<br><span style="color:var(--text);opacity:0.75;font-size:11px;">${desc}</span>` : ''}
-                </span>
             </div>`;
         } else {
-            return `<div style="display:grid;grid-template-columns:140px 130px 55px 1fr;gap:4px 10px;align-items:center;padding:6px 0 6px 4px;font-size:12px;border-bottom:1px solid var(--border);">
+            const firstName = esc((e['person-first-name'] || '').trim());
+            return `<div style="${rowStyle}">
                 <div style="display:flex;align-items:center;gap:7px;min-width:0;">
                     ${personAvatar(e)}
                     <span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${firstName}</span>
                 </div>
-                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${timeRange}</span>
+                <div>${descHtml}${descHtml && descBody ? '<br>' : ''}${descBody}</div>
+                <span style="color:var(--text-dim);font-size:11px;">${taskList}</span>
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${startDisp}</span>
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${endStr}</span>
                 <span style="font-weight:700;color:var(--accent);white-space:nowrap;">${fmtMins(mins)}</span>
-                <span>
-                    <span style="color:var(--text-dim);">${proj}${task ? ' › ' + task : ''}</span>
-                    ${desc ? `<br><span style="color:var(--text);opacity:0.75;font-size:11px;">${desc}</span>` : ''}
-                </span>
             </div>`;
         }
     }
@@ -4394,7 +4426,7 @@
 
         const dateKeys = [...new Set(entries.map(e => (e.date || '').slice(0, 10)))].sort((a, b) => b.localeCompare(a));
         const totalRef = { v: 0 };
-        let html = '';
+        let html = tvColHeader();
 
         for (const date of dateKeys) {
             const dayEntries = entries.filter(e => (e.date || '').slice(0, 10) === date);
@@ -4402,7 +4434,6 @@
             let inner = '';
 
             if (_teamViewGrouped) {
-                // sub-group by person
                 const people = [...new Set(dayEntries.map(personKey))].sort();
                 for (const who of people) {
                     const pEntries = dayEntries.filter(e => personKey(e) === who)
@@ -4410,27 +4441,21 @@
                     const personRef = { v: 0 };
                     const rows = pEntries.map(e => entryRow(e, personRef, totalRef)).join('');
                     dayRef.v += personRef.v;
-                    const avatarHtml = personAvatar(pEntries[0]);
-                    inner += `<div style="margin-bottom:4px;">
+                    inner += `<div style="margin-bottom:2px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px 4px 10px;background:var(--surface-3,var(--surface-2));border-left:3px solid var(--accent);font-size:12px;font-weight:700;color:var(--text);">
-                            <div style="display:flex;align-items:center;gap:7px;">${avatarHtml}<span>${esc(who)}</span></div>
+                            <div style="display:flex;align-items:center;gap:7px;">${personAvatar(pEntries[0])}<span>${esc(who)}</span></div>
                             <span style="color:var(--accent);">${fmtMins(personRef.v)}</span>
-                        </div>
-                        ${rows}
-                    </div>`;
+                        </div>${rows}</div>`;
                 }
             } else {
-                // flat — sort all day entries ascending by start time
                 dayEntries.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
                 inner = dayEntries.map(e => entryRow(e, dayRef, totalRef)).join('');
             }
 
             html += `<div style="margin-bottom:12px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;background:var(--surface-2);border-radius:6px;font-size:13px;font-weight:700;color:var(--text-dim);margin-bottom:4px;">
-                    <span>${fmtDayHeading(date)}</span><span>${fmtMins(_teamViewGrouped ? dayRef.v : dayRef.v)}</span>
-                </div>
-                ${inner}
-            </div>`;
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;background:var(--surface-2);border-radius:6px;font-size:13px;font-weight:700;color:var(--text-dim);margin-bottom:2px;">
+                    <span>${fmtDayHeading(date)}</span><span>${fmtMins(dayRef.v)}</span>
+                </div>${inner}</div>`;
         }
 
         body.innerHTML = `<div style="padding:0 2px;">${html}</div>`;
