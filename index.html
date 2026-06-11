@@ -1734,13 +1734,25 @@
         };
     }
 
+    const _apiCache = new Map(); // key: url, value: { data, ts }
+    const _API_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+    function apiCacheInvalidate() { _apiCache.clear(); }
+
     async function apiGet(path) {
-        const r = await fetch(apiBase() + path, { headers: apiHeaders() });
+        const url = apiBase() + path;
+        const now = Date.now();
+        const hit = _apiCache.get(url);
+        if (hit && now - hit.ts < _API_CACHE_TTL) return hit.data;
+        const r = await fetch(url, { headers: apiHeaders() });
         if (!r.ok) throw new Error(`${r.status}`);
-        return r.json();
+        const data = await r.json();
+        _apiCache.set(url, { data, ts: now });
+        return data;
     }
 
     async function apiPost(path, body) {
+        apiCacheInvalidate();
         const r = await fetch(apiBase() + path, {
             method: 'POST', headers: apiHeaders(), body: JSON.stringify(body)
         });
@@ -1749,6 +1761,7 @@
     }
 
     async function apiPut(path, body) {
+        apiCacheInvalidate();
         const r = await fetch(apiBase() + path, {
             method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body)
         });
@@ -1757,6 +1770,7 @@
     }
 
     async function apiDelete(path) {
+        apiCacheInvalidate();
         const r = await fetch(apiBase() + path, {
             method: 'DELETE', headers: apiHeaders()
         });
