@@ -1660,6 +1660,10 @@
                     onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
                     onkeydown="if(event.key==='Enter')searchTicketEntries()">
                 <button class="btn btn-primary" onclick="searchTicketEntries()" style="padding:5px 14px;font-size:12px;">Search</button>
+                <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);cursor:pointer;white-space:nowrap;">
+                    <input type="checkbox" id="ticket-lookup-all-users" style="cursor:pointer;">
+                    All team members
+                </label>
             </div>
             <button class="bulk-close" onclick="closeTicketLookup()">✕</button>
         </div>
@@ -4605,10 +4609,11 @@
 
         if (!ticketId) { toast('Enter a ticket ID or URL', 'error'); return; }
 
-        body.innerHTML = '<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Fetching all entries…</div>';
+        const allUsers = document.getElementById('ticket-lookup-all-users')?.checked;
+        body.innerHTML = `<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Fetching entries${allUsers ? ' (all team members)' : ''}…</div>`;
         totalEl.textContent = '';
 
-        const uf = config.userId ? `&userId=${config.userId}` : '';
+        const uf = (!allUsers && config.userId) ? `&userId=${config.userId}` : '';
         let allEntries = [], page = 1;
         try {
             while (true) {
