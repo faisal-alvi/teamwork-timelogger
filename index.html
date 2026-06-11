@@ -1661,9 +1661,16 @@
                     onkeydown="if(event.key==='Enter')searchTicketEntries()">
                 <button class="btn btn-primary" onclick="searchTicketEntries()" style="padding:5px 14px;font-size:12px;">Search</button>
                 <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);cursor:pointer;white-space:nowrap;">
-                    <input type="checkbox" id="ticket-lookup-all-users" style="cursor:pointer;" onchange="if(document.getElementById('ticket-lookup-input').value.trim())searchTicketEntries()">
+                    <input type="checkbox" id="ticket-lookup-all-users" style="cursor:pointer;" onchange="ticketLookupToggleAllUsers();if(document.getElementById('ticket-lookup-input').value.trim())searchTicketEntries()">
                     All team members
                 </label>
+                <select id="ticket-lookup-range" style="display:none;padding:4px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;cursor:pointer;"
+                    onchange="if(document.getElementById('ticket-lookup-input').value.trim())searchTicketEntries()">
+                    <option value="1">Last 1 month</option>
+                    <option value="3">Last 3 months</option>
+                    <option value="6">Last 6 months</option>
+                    <option value="0">All time</option>
+                </select>
             </div>
             <button class="bulk-close" onclick="closeTicketLookup()">✕</button>
         </div>
@@ -4601,6 +4608,11 @@
         searchTicketEntries();
     }
 
+    function ticketLookupToggleAllUsers() {
+        const checked = document.getElementById('ticket-lookup-all-users').checked;
+        document.getElementById('ticket-lookup-range').style.display = checked ? 'inline-block' : 'none';
+    }
+
     async function searchTicketEntries() {
         const raw      = document.getElementById('ticket-lookup-input').value.trim();
         const ticketId = extractLinearId(raw) || raw.toUpperCase();
@@ -4609,15 +4621,29 @@
 
         if (!ticketId) { toast('Enter a ticket ID or URL', 'error'); return; }
 
-        const allUsers = document.getElementById('ticket-lookup-all-users')?.checked;
-        body.innerHTML = `<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Fetching entries${allUsers ? ' (all team members)' : ''}…</div>`;
+        const allUsers  = document.getElementById('ticket-lookup-all-users')?.checked;
+        const rangeMonths = allUsers ? parseInt(document.getElementById('ticket-lookup-range')?.value || '1') : 0;
+
+        // build date filter
+        let dateFilter = '';
+        if (allUsers && rangeMonths > 0) {
+            const to   = new Date();
+            const from = new Date();
+            from.setMonth(from.getMonth() - rangeMonths);
+            dateFilter = `&fromdate=${toApiDate(from)}&todate=${toApiDate(to)}`;
+        }
+
+        const rangeLabel = allUsers
+            ? (rangeMonths === 0 ? 'all time' : `last ${rangeMonths} month${rangeMonths > 1 ? 's' : ''}`)
+            : 'your entries';
+        body.innerHTML = `<div class="preview-empty"><span class="spinner" style="border-color:rgba(0,0,0,0.1);border-top-color:var(--accent);display:inline-block;vertical-align:middle;margin-right:6px;"></span>Fetching entries (${rangeLabel})…</div>`;
         totalEl.textContent = '';
 
         const uf = (!allUsers && config.userId) ? `&userId=${config.userId}` : '';
         let allEntries = [], page = 1;
         try {
             while (true) {
-                const data    = await apiGet(`/time_entries.json?pageSize=500&page=${page}${uf}`);
+                const data    = await apiGet(`/time_entries.json?pageSize=500&page=${page}${uf}${dateFilter}`);
                 const entries = data['time-entries'] || data['timeEntries'] || [];
                 allEntries    = allEntries.concat(entries);
                 if (entries.length < 500) break;
@@ -4628,24 +4654,19 @@
             return;
         }
 
-        // filter entries whose description contains the ticket ID (case-insensitive)
         const needle  = ticketId.toUpperCase();
         const matched = allEntries.filter(e => (e.description || '').toUpperCase().includes(needle));
 
         if (!matched.length) {
-            body.innerHTML = `<div class="preview-empty">No entries found for <strong>${esc(ticketId)}</strong>.</div>`;
+            body.innerHTML = `<div class="preview-empty">No entries found for <strong>${esc(ticketId)}</strong> in ${rangeLabel}.</div>`;
             totalEl.textContent = '';
             return;
         }
 
-        // sort newest first
-        matched.sort((a, b) => {
-            const da = a.date || a['created-at'] || '';
-            const db = b.date || b['created-at'] || '';
-            return db.localeCompare(da);
-        });
+        matched.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
         let totalMins = 0;
+        const cols  = allUsers ? '90px 120px 60px 1fr' : '90px 60px 1fr';
         const rows = matched.map(e => {
             const mins    = entryMins(e);
             totalMins    += mins;
@@ -4654,13 +4675,13 @@
             const proj    = esc(e['project-name'] || '—');
             const task    = esc(e['todo-item-name'] || '');
             const desc    = esc(e.description || '');
-            const who     = esc(((e['person-first-name'] || '') + ' ' + (e['person-last-name'] || '')).trim() || '—');
-            return `<div style="display:grid;grid-template-columns:90px 110px 60px 1fr;gap:6px 12px;align-items:start;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
-                <span style="color:var(--text-dim);white-space:nowrap;">${dateStr}</span>
-                <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+            const whoCol  = allUsers ? `<div style="display:flex;align-items:center;gap:6px;min-width:0;">
                     ${personAvatar(e)}
-                    <span style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${who}</span>
-                </div>
+                    <span style="font-weight:600;color:var(--text);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(((e['person-first-name']||'')+' '+(e['person-last-name']||'')).trim()||'—')}</span>
+                </div>` : '';
+            return `<div style="display:grid;grid-template-columns:${cols};gap:6px 12px;align-items:start;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
+                <span style="color:var(--text-dim);white-space:nowrap;">${dateStr}</span>
+                ${whoCol}
                 <span style="font-weight:700;color:var(--accent);white-space:nowrap;">${timeStr}</span>
                 <span>
                     <span style="color:var(--text-dim);">${proj}${task ? ' › ' + task : ''}</span>
