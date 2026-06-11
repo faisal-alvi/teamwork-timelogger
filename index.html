@@ -1630,6 +1630,14 @@
             <button class="bulk-close" onclick="closeTeamView()">✕</button>
         </div>
         <div id="team-view-filters" style="display:none;padding:10px 24px 0;gap:6px;flex-wrap:wrap;"></div>
+        <div id="team-view-search-wrap" style="display:none;padding:8px 24px 0;">
+            <input type="text" id="team-view-search"
+                placeholder="Search by person, task, description, task list…"
+                autocomplete="off"
+                oninput="applyTeamViewSearch(this.value)"
+                style="width:100%;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;box-sizing:border-box;"
+                onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+        </div>
         <div class="report-body" id="team-view-body">
             <div class="preview-empty">Loading…</div>
         </div>
@@ -4505,8 +4513,27 @@
     function applyTeamViewFilter(name) {
         _teamViewFilter = name;
         renderTeamViewFilters();
-        const filtered = name === 'All' ? _teamViewEntries : _teamViewEntries.filter(e => personKey(e) === name);
-        renderTeamViewEntries(filtered);
+        applyTeamViewSearch(document.getElementById('team-view-search').value);
+    }
+
+    function tvFilteredEntries() {
+        const base = _teamViewFilter === 'All' ? _teamViewEntries : _teamViewEntries.filter(e => personKey(e) === _teamViewFilter);
+        const q = (document.getElementById('team-view-search')?.value || '').trim().toLowerCase();
+        if (!q) return base;
+        return base.filter(e => {
+            const hay = [
+                personKey(e),
+                e['todo-item-name'] || '',
+                e.description || '',
+                e['todo-list-name'] || '',
+                e['project-name'] || ''
+            ].join(' ').toLowerCase();
+            return hay.includes(q);
+        });
+    }
+
+    function applyTeamViewSearch(val) {
+        renderTeamViewEntries(tvFilteredEntries());
     }
 
     async function loadTeamView() {
@@ -4555,6 +4582,9 @@
 
         _teamViewEntries = allEntries;
         _teamViewFilter  = 'All';
+        const searchEl = document.getElementById('team-view-search');
+        searchEl.value = '';
+        document.getElementById('team-view-search-wrap').style.display = 'block';
         renderTeamViewFilters();
         renderTeamViewEntries(allEntries);
     }
