@@ -608,6 +608,62 @@
 
         .day-block.collapsed .day-entries { display: none; }
 
+        /* Ticket estimate badge */
+        .ticket-est-wrap {
+            display: inline-flex; align-items: center; gap: 4px;
+            margin-top: 4px; flex-wrap: wrap;
+        }
+        .ticket-est {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 2px 8px; border-radius: 10px;
+            font-size: 10px; font-weight: 700;
+            background: var(--surface-2); color: var(--text);
+            border: 1.5px solid var(--border);
+            cursor: pointer; user-select: none;
+            transition: all 0.15s;
+        }
+        .ticket-est:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+        .ticket-est .est-level {
+            padding: 1px 6px; border-radius: 4px; color: #fff;
+            font-weight: 800; letter-spacing: 0.5px;
+        }
+        .ticket-est .est-hours { color: var(--text-dim); font-weight: 600; }
+        .ticket-est .est-hours.over { color: var(--danger); font-weight: 800; }
+        .ticket-est .est-hours.near { color: #d97706; font-weight: 800; }
+        .ticket-est-edit {
+            padding: 1px 5px; border-radius: 5px; border: 1.5px dashed var(--border);
+            font-size: 10px; cursor: pointer; background: transparent; color: var(--text-dim);
+        }
+        .ticket-est-edit:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* Estimate picker modal */
+        .est-picker-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.35); z-index: 350;
+            align-items: center; justify-content: center;
+        }
+        .est-picker-overlay.open { display: flex; }
+        .est-picker {
+            background: var(--surface); border-radius: 12px;
+            padding: 18px 22px; min-width: 320px; max-width: 90vw;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+        }
+        .est-picker h3 { margin: 0 0 4px; font-size: 15px; color: var(--text); }
+        .est-picker .est-sub { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+        .est-picker-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+        }
+        .est-picker-btn {
+            padding: 10px 8px; border-radius: 8px; border: 1.5px solid var(--border);
+            background: var(--surface-2); cursor: pointer; text-align: center;
+            transition: all 0.15s; font-family: inherit;
+        }
+        .est-picker-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+        .est-picker-btn.active { border-color: var(--accent); background: var(--accent-light); }
+        .est-picker-btn .lvl { font-size: 16px; font-weight: 800; color: #fff; padding: 2px 8px; border-radius: 5px; display: inline-block; }
+        .est-picker-btn .rng { display: block; margin-top: 6px; font-size: 11px; color: var(--text-dim); font-weight: 600; }
+        .est-picker-actions { display: flex; justify-content: space-between; margin-top: 14px; gap: 8px; }
+
         /* Project group within a day */
         .project-group { border-top: 1px solid var(--border); }
         .project-group:first-child { border-top: none; }
@@ -1161,6 +1217,7 @@
         <h1>
             <span class="status-dot" id="status-dot"></span>
             Time Logger
+            <span style="font-size:10px;background:var(--accent-light);color:var(--accent);padding:1px 7px;border-radius:10px;font-weight:700;vertical-align:middle;">v2</span>
         </h1>
         <div class="header-right">
             <div class="week-nav-header">
@@ -1169,9 +1226,11 @@
                 <button class="icon-btn" onclick="loadWeekData()" title="Refresh">↻</button>
                 <button class="icon-btn" onclick="changeWeek(1)">→</button>
             </div>
+            <button class="settings-btn" onclick="openTeamView()">👥 Team View</button>
             <button class="settings-btn" onclick="openTicketLookup()">🔍 Ticket Lookup</button>
             <button class="settings-btn" onclick="openMonthReport()">📅 Month Report</button>
             <button class="settings-btn" onclick="openBulkAdjust()" style="background:var(--accent);color:#fff;border-color:var(--accent);">⚡ Bulk Adjust</button>
+            <button class="settings-btn" onclick="copyStandup()" title="Copy yesterday + today entries as standup text">📝 Standup</button>
             <button class="settings-btn" onclick="clearAppCache()" title="Clear API cache">🗑 Clear Cache</button>
             <button class="settings-btn" onclick="openSettings()">Settings</button>
         </div>
@@ -1271,7 +1330,8 @@
 
                 <div class="form-group">
                     <label>Description</label>
-                    <textarea id="log-description" placeholder="What did you work on?"></textarea>
+                    <textarea id="log-description" placeholder="What did you work on?" oninput="onLogDescInput(this.value)"></textarea>
+                    <div id="log-desc-est" style="margin-top:6px;"></div>
                 </div>
 
                 <div class="form-group">
@@ -1451,6 +1511,32 @@
                 <div class="rule-control">
                     <input class="rule-input" type="number" id="rule-ui-font-size" min="9" max="20" step="1" style="width:60px;">
                     <span style="font-size:12px;color:var(--text-dim);">px</span>
+                </div>
+            </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
+                    Ticket estimate lookback
+                    <div class="rule-desc">How many months back to count team hours per ticket for the X/Y badge. Shorter = faster first fetch.</div>
+                </div>
+                <div class="rule-control">
+                    <select class="rule-input" id="rule-ticket-total-months" style="width:130px;">
+                        <option value="1">1 month</option>
+                        <option value="3">3 months</option>
+                        <option value="6">6 months</option>
+                        <option value="12">12 months</option>
+                        <option value="0">All time</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="rule-row">
+                <div class="rule-label">
+                    Linear workspace slug
+                    <div class="rule-desc">Used to build Linear ticket URLs from ticket IDs (e.g. <code>a8c</code> → <code>https://linear.app/a8c/issue/...</code>).</div>
+                </div>
+                <div class="rule-control">
+                    <input class="rule-input" type="text" id="rule-linear-workspace" placeholder="a8c" style="width:140px;">
                 </div>
             </div>
         </div>
@@ -1661,9 +1747,21 @@
                     onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
                     onkeydown="if(event.key==='Enter')searchTicketEntries()">
                 <button class="btn btn-primary" onclick="searchTicketEntries()" style="padding:5px 14px;font-size:12px;">Search</button>
+                <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);cursor:pointer;white-space:nowrap;">
+                    <input type="checkbox" id="ticket-lookup-all-users" style="cursor:pointer;" onchange="ticketLookupToggleAllUsers();if(document.getElementById('ticket-lookup-input').value.trim())searchTicketEntries()">
+                    All team members
+                </label>
+                <select id="ticket-lookup-range" style="display:none;padding:4px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--surface-2);outline:none;cursor:pointer;"
+                    onchange="if(document.getElementById('ticket-lookup-input').value.trim())searchTicketEntries()">
+                    <option value="1">Last 1 month</option>
+                    <option value="3">Last 3 months</option>
+                    <option value="6">Last 6 months</option>
+                    <option value="0">All time</option>
+                </select>
             </div>
             <button class="bulk-close" onclick="closeTicketLookup()">✕</button>
         </div>
+        <div id="ticket-lookup-recent" style="display:none;padding:8px 24px 0;gap:6px;flex-wrap:wrap;align-items:center;"></div>
         <div id="ticket-lookup-filters" style="display:none;padding:10px 24px 0;gap:6px;flex-wrap:wrap;"></div>
         <div class="report-body" id="ticket-lookup-body">
             <div class="preview-empty">Paste a ticket ID or Linear URL above and press Search.</div>
@@ -1671,6 +1769,18 @@
         <div class="report-footer">
             <div style="flex:1;font-size:12px;color:var(--text-dim);" id="ticket-lookup-total"></div>
             <button class="btn btn-ghost" onclick="closeTicketLookup()" style="font-size:12px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="est-picker-overlay" id="est-picker-overlay" onclick="if(event.target===this)closeEstimatePicker()">
+    <div class="est-picker">
+        <h3>Set estimate for <span id="ep-ticket" style="color:var(--accent);"></span></h3>
+        <div class="est-sub">Tracks total team hours against the cap. Click anywhere on the badge later to change.</div>
+        <div class="est-picker-grid" id="ep-grid"></div>
+        <div class="est-picker-actions">
+            <button class="btn btn-ghost" onclick="applyEstimate(null)" style="font-size:12px;">Clear</button>
+            <button class="btn btn-ghost" onclick="closeEstimatePicker()" style="font-size:12px;">Cancel</button>
         </div>
     </div>
 </div>
@@ -1697,6 +1807,7 @@
     // ─── Boot ─────────────────────────────────────────────────────────────────
     function init() {
         loadRules();
+        _dayStoreHydrate();   // restore immutable past days from localStorage (0 network)
         // Show GitHub link only when running locally (never on GitHub Pages)
         const isLocal = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
         if (isLocal) {
@@ -1725,9 +1836,359 @@
         };
     }
 
-    const _apiCache = new Map(); // key: url, value: { data }
+    const _apiCache = new Map(); // key: url, value: { data } — in-memory only (projects/tasks/me + transient range pages)
 
-    function apiCacheInvalidate() { _apiCache.clear(); }
+    // ═══ Unified entry store ════════════════════════════════════════════════
+    // Single source of truth: ALL-TEAM time entries bucketed by day.
+    // Past days are immutable → persisted to localStorage forever.
+    // Today is the only mutable day → fetched once per session (or after a write).
+    // Every view (week, last-week, badges, Team View, Lookup, Month Report) is a
+    // client-side filter of this store, so an in-window range needs zero refetch.
+    const _dayStore     = new Map();          // 'YYYY-MM-DD' → entry[] (all team)
+    const _DAYSTORE_KEY = 'tw_daystore_v1';
+    let   _todayFresh   = false;              // has today's bucket been fetched this session?
+
+    function _todayKey() { return toDayKey(new Date()); }
+
+    function _dayKeyToDate(k) {
+        return new Date(+k.slice(0,4), +k.slice(5,7) - 1, +k.slice(8,10));
+    }
+
+    function _dayStoreHydrate() {
+        try {
+            const raw    = JSON.parse(localStorage.getItem(_DAYSTORE_KEY) || '{}');
+            const todayK = _todayKey();
+            for (const k in raw) {
+                if (k < todayK) _dayStore.set(k, raw[k]); // trust only immutable past days
+            }
+        } catch (_) { /* corrupt store — start fresh */ }
+    }
+
+    function _dayStorePersist() {
+        const todayK = _todayKey();
+        const out = {};
+        for (const [k, v] of _dayStore) if (k < todayK) out[k] = v; // never persist today/future
+        try {
+            localStorage.setItem(_DAYSTORE_KEY, JSON.stringify(out));
+        } catch (_) {
+            // quota exceeded → drop oldest 25% of days and retry once
+            const keys = Object.keys(out).sort();
+            const cut  = Math.ceil(keys.length * 0.25);
+            for (let i = 0; i < cut; i++) { delete out[keys[i]]; _dayStore.delete(keys[i]); }
+            try { localStorage.setItem(_DAYSTORE_KEY, JSON.stringify(out)); } catch (_) {}
+        }
+    }
+
+    function listDayKeys(fromDate, toDate) {
+        const keys = [];
+        const d = new Date(fromDate); d.setHours(0,0,0,0);
+        const end = new Date(toDate); end.setHours(0,0,0,0);
+        while (d <= end) { keys.push(toDayKey(d)); d.setDate(d.getDate() + 1); }
+        return keys;
+    }
+
+    // Bucket a flat entry array by day, replacing those day buckets wholesale.
+    function _ingest(entries) {
+        const byDay = {};
+        for (const e of entries) {
+            const k = entryDateKey(e);
+            (byDay[k] = byDay[k] || []).push(e);
+        }
+        for (const k in byDay) _dayStore.set(k, byDay[k]);
+    }
+
+    async function _fetchRangeIntoStore(fromDate, toDate) {
+        const fromApi = toApiDate(fromDate);
+        const toApi   = toApiDate(toDate);
+        let all = [], page = 1;
+        while (true) {
+            const data    = await apiGet(`/time_entries.json?fromdate=${fromApi}&todate=${toApi}&pageSize=500&page=${page}`);
+            const entries = data['time-entries'] || data['timeEntries'] || [];
+            all = all.concat(entries);
+            if (entries.length < 500) break;
+            page++;
+            if (page > 30) break;
+            await _sleep(250); // throttle to avoid 429
+        }
+        _ingest(all);
+        // Mark every day in range with no returned entries as loaded-empty → no refetch.
+        for (const k of listDayKeys(fromDate, toDate)) {
+            if (!_dayStore.has(k)) _dayStore.set(k, []);
+        }
+        _dayStorePersist();
+        _ticketTotalsCache.clear(); // new data invalidates cached ticket totals
+        return all;
+    }
+
+    async function _ensureRangeInner(fromDate, toDate) {
+        const keys    = listDayKeys(fromDate, toDate);
+        const todayK  = _todayKey();
+        const missing = keys.filter(k => !_dayStore.has(k) || (k === todayK && !_todayFresh));
+        if (!missing.length) return;
+        // One paginated range fetch covering all missing days (interior gaps re-fetched harmlessly).
+        const lo = missing[0], hi = missing[missing.length - 1];
+        await _fetchRangeIntoStore(_dayKeyToDate(lo), _dayKeyToDate(hi));
+        if (keys.includes(todayK)) _todayFresh = true;
+    }
+
+    // Serialize all range fetches so concurrent loaders (week + last-week + badges)
+    // never fire parallel requests → avoids 429 and duplicate work.
+    let _ensureChain = Promise.resolve();
+    function ensureRange(fromDate, toDate) {
+        const run = () => _ensureRangeInner(fromDate, toDate);
+        _ensureChain = _ensureChain.then(run, run); // keep chain alive even if a prior fetch threw
+        return _ensureChain;
+    }
+
+    // All-team entries for [from,to], read straight from the store.
+    function storeEntries(fromDate, toDate) {
+        let out = [];
+        for (const k of listDayKeys(fromDate, toDate)) {
+            const arr = _dayStore.get(k);
+            if (arr && arr.length) out = out.concat(arr);
+        }
+        return out;
+    }
+
+    // My entries for a single day (week view shows the logged-in user only).
+    function myDayEntries(dayKey) {
+        const arr = _dayStore.get(dayKey) || [];
+        if (!config.userId) return arr;
+        return arr.filter(e => String(e['person-id']) === String(config.userId));
+    }
+
+    // Evict one day so the next read refetches it (used after writes to that day).
+    function _evictDay(dayKey) {
+        _dayStore.delete(dayKey);
+        if (dayKey === _todayKey()) _todayFresh = false;
+        _ticketTotalsCache.clear();
+        _dayStorePersist();
+    }
+
+    // Light invalidation after a write: drop transient URL cache + ticket totals,
+    // force today to refetch. The affected day is evicted explicitly via reloadDay.
+    function _invalidateForWrite() {
+        _apiCache.clear();
+        _ticketTotalsCache.clear();
+        _todayFresh = false;
+    }
+
+    // Full nuke — used by the "Clear Cache" button and on settings change.
+    function apiCacheInvalidate() {
+        _apiCache.clear();
+        _dayStore.clear();
+        localStorage.removeItem(_DAYSTORE_KEY);
+        _todayFresh = false;
+        _ticketTotalsCache.clear();
+    }
+
+    // ─── Ticket estimates ─────────────────────────────────────────────────────
+    const ESTIMATE_LEVELS = [
+        { key: 'XS',  min: 0,  max: 4,    label: '< 4h' },
+        { key: 'S',   min: 4,  max: 9,    label: '4-9h' },
+        { key: 'M',   min: 10, max: 15,   label: '10-15h' },
+        { key: 'L',   min: 16, max: 25,   label: '16-25h' },
+        { key: 'XL',  min: 26, max: 40,   label: '26-40h' },
+        { key: 'XXL', min: 40, max: null, label: '40h+' },
+    ];
+    const ESTIMATE_COLORS = {
+        XS:  '#6b7280', S:   '#10b981', M:   '#3b82f6',
+        L:   '#f59e0b', XL:  '#ef4444', XXL: '#7c3aed',
+    };
+
+    function estimateByKey(key) { return ESTIMATE_LEVELS.find(l => l.key === key); }
+
+    function getEstimates() {
+        try { return JSON.parse(localStorage.getItem('tw_ticket_estimates') || '{}'); }
+        catch (_) { return {}; }
+    }
+    function saveEstimates(map) {
+        localStorage.setItem('tw_ticket_estimates', JSON.stringify(map));
+    }
+    function getTicketEstimate(ticketId) {
+        return getEstimates()[ticketId.toUpperCase()] || null;
+    }
+
+    // Match TICKET-123 anywhere in description text (broader than extractLinearId)
+    function extractTicketFromText(text) {
+        if (!text) return null;
+        const m = String(text).match(/\b([A-Z][A-Z0-9]+-\d+)\b/i);
+        return m ? m[1].toUpperCase() : null;
+    }
+
+    // Per-ticket total cache (cleared whenever the store gains new days)
+    const _ticketTotalsCache = new Map();
+
+    // The badge/lookup history window (months back from today).
+    function _badgeWindowRange() {
+        const months = parseInt(rules.ticketTotalMonths ?? 3);
+        const to   = new Date();
+        const from = new Date();
+        if (months > 0) from.setMonth(from.getMonth() - months);
+        else            from.setFullYear(from.getFullYear() - 5); // "all time" capped at 5y
+        return { from, to };
+    }
+
+    // Ensure the configured history window is loaded, return its all-team entries.
+    async function ensureBadgeWindow() {
+        const { from, to } = _badgeWindowRange();
+        await ensureRange(from, to);
+        return storeEntries(from, to);
+    }
+
+    async function getTicketTotalMins(ticketId) {
+        const key = ticketId.toUpperCase();
+        if (_ticketTotalsCache.has(key)) return _ticketTotalsCache.get(key);
+        const all   = await ensureBadgeWindow();
+        const total = all
+            .filter(e => (e.description || '').toUpperCase().includes(key))
+            .reduce((s, e) => s + entryMins(e), 0);
+        _ticketTotalsCache.set(key, total);
+        return total;
+    }
+
+    function fmtHoursDecimal(mins) {
+        const h = mins / 60;
+        return h >= 10 ? Math.round(h) : (Math.round(h * 10) / 10);
+    }
+
+    function linearTicketUrl(ticketId) {
+        const ws = (rules.linearWorkspace || 'a8c').trim();
+        return `https://linear.app/${ws}/issue/${ticketId.toUpperCase()}`;
+    }
+
+    // Compact badge for Team View — no edit/add buttons, just the level + hours
+    function renderEstimateBadgeTV(ticketId) {
+        const key  = ticketId.toUpperCase();
+        const est  = getTicketEstimate(key);
+        if (!est) {
+            return `<span class="ticket-est" data-ticket="${key}" onclick="event.stopPropagation();openTicketFromBadge('${key}')" title="${esc(key)} · click to view team entries" style="cursor:pointer;">
+                <span class="est-level" style="background:var(--text-dimmer)">?</span>
+                <span class="est-hours" data-cap="">…h logged</span>
+            </span>`;
+        }
+        const lvl   = estimateByKey(est);
+        const color = ESTIMATE_COLORS[est] || 'var(--accent)';
+        const capH  = lvl.max == null ? '∞' : `${lvl.max}h`;
+        return `<span class="ticket-est" data-ticket="${key}" onclick="event.stopPropagation();openTicketFromBadge('${key}')" title="${esc(key)} · ${lvl.label} · click to view team entries" style="cursor:pointer;">
+            <span class="est-level" style="background:${color}">${est}</span>
+            <span class="est-hours" data-cap="${lvl.max == null ? '' : lvl.max}">…/${capH}</span>
+        </span>`;
+    }
+
+    function renderEstimateBadge(ticketId) {
+        const key  = ticketId.toUpperCase();
+        const est  = getTicketEstimate(key);
+        const linearBtn = `<a class="ticket-est-edit" href="${linearTicketUrl(key)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="Open ${esc(key)} in Linear" style="text-decoration:none;">↗ Linear</a>`;
+        if (!est) {
+            return `<span class="ticket-est" data-ticket="${key}" onclick="event.stopPropagation();openTicketFromBadge('${key}')" title="${esc(key)} · click to view team entries">
+                <span class="est-level" style="background:var(--text-dimmer)">?</span>
+                <span class="est-hours" data-cap="">…h logged</span>
+            </span>
+            <button class="ticket-est-edit" onclick="event.stopPropagation();pickEstimate('${key}')">+ Estimate</button>${linearBtn}`;
+        }
+        const lvl  = estimateByKey(est);
+        const color = ESTIMATE_COLORS[est] || 'var(--accent)';
+        const capH  = lvl.max == null ? '∞' : `${lvl.max}h`;
+        return `<span class="ticket-est" data-ticket="${key}" onclick="event.stopPropagation();openTicketFromBadge('${key}')" title="${esc(key)} · ${lvl.label} · click to view team entries">
+            <span class="est-level" style="background:${color}">${est}</span>
+            <span class="est-hours" data-cap="${lvl.max == null ? '' : lvl.max}">…/${capH}</span>
+        </span>
+        <button class="ticket-est-edit" onclick="event.stopPropagation();pickEstimate('${key}')" title="Change estimate">⚙</button>${linearBtn}`;
+    }
+
+    async function _refreshOneTicketBadge(ticketId) {
+        const key = ticketId.toUpperCase();
+        try {
+            const mins = await getTicketTotalMins(key);
+            const hours = fmtHoursDecimal(mins);
+            document.querySelectorAll(`.ticket-est[data-ticket="${key}"] .est-hours`).forEach(el => {
+                const capRaw = el.dataset.cap;
+                const cap    = parseInt(capRaw || '0', 10);
+                el.classList.remove('over', 'near');
+                if (capRaw === '' || capRaw == null) {
+                    el.textContent = `${hours}h logged`;
+                } else if (cap === 0) {
+                    el.textContent = `${hours}/∞`;
+                } else {
+                    el.textContent = `${hours}/${cap}h`;
+                    if (mins > cap * 60)            el.classList.add('over');
+                    else if (mins > cap * 60 * 0.8) el.classList.add('near');
+                }
+            });
+        } catch (_) { /* ignore */ }
+    }
+
+    function refreshTicketBadges() {
+        const seen = new Set();
+        document.querySelectorAll('.ticket-est[data-ticket]').forEach(el => {
+            seen.add(el.dataset.ticket);
+        });
+        seen.forEach(_refreshOneTicketBadge);
+    }
+
+    // ─── Estimate picker ──────────────────────────────────────────────────────
+    let _pickerTicket = null;
+
+    function pickEstimate(ticketId) {
+        _pickerTicket = ticketId.toUpperCase();
+        document.getElementById('ep-ticket').textContent = _pickerTicket;
+        const cur = getTicketEstimate(_pickerTicket);
+        const grid = document.getElementById('ep-grid');
+        grid.innerHTML = ESTIMATE_LEVELS.map(l => {
+            const active = l.key === cur ? 'active' : '';
+            const color  = ESTIMATE_COLORS[l.key];
+            return `<button class="est-picker-btn ${active}" onclick="applyEstimate('${l.key}')">
+                <span class="lvl" style="background:${color}">${l.key}</span>
+                <span class="rng">${l.label}</span>
+            </button>`;
+        }).join('');
+        document.getElementById('est-picker-overlay').classList.add('open');
+    }
+
+    function closeEstimatePicker() {
+        document.getElementById('est-picker-overlay').classList.remove('open');
+        _pickerTicket = null;
+    }
+
+    function applyEstimate(level) {
+        if (!_pickerTicket) return;
+        const map = getEstimates();
+        if (level) map[_pickerTicket] = level;
+        else       delete map[_pickerTicket];
+        saveEstimates(map);
+        closeEstimatePicker();
+        // Re-render current week so badges reflect new state
+        renderWeekDays();
+        // Refresh Quick Log Linear preview if visible
+        const linearUrl = document.getElementById('linear-url');
+        if (linearUrl && linearUrl.value) onLinearUrlInput(linearUrl.value);
+        // Refresh manual log description preview if visible
+        const logDesc = document.getElementById('log-description');
+        if (logDesc) onLogDescInput(logDesc.value);
+        refreshTicketBadges();
+    }
+
+    function onLogDescInput(val) {
+        const el = document.getElementById('log-desc-est');
+        if (!el) return;
+        const tid = extractTicketFromText(val);
+        if (!tid) { el.innerHTML = ''; return; }
+        el.innerHTML = `<div class="ticket-est-wrap">${renderEstimateBadge(tid)}</div>`;
+        refreshTicketBadges();
+    }
+
+    function openTicketFromBadge(ticketId) {
+        document.getElementById('ticket-lookup-input').value = ticketId;
+        // Force all-team view so user sees the team-wide breakdown matching the badge
+        const allUsersCb = document.getElementById('ticket-lookup-all-users');
+        if (allUsersCb && !allUsersCb.checked) {
+            allUsersCb.checked = true;
+            if (typeof ticketLookupToggleAllUsers === 'function') ticketLookupToggleAllUsers();
+        }
+        openTicketLookup();
+        searchTicketEntries();
+    }
 
     function clearAppCache() {
         apiCacheInvalidate();
@@ -1736,24 +2197,34 @@
     }
 
     function clearTeamViewCache() {
-        const from = (document.getElementById('team-view-from')?.value || '').replace(/-/g, '');
-        const to   = (document.getElementById('team-view-to')?.value || '').replace(/-/g, '');
+        const from = document.getElementById('team-view-from')?.value || '';
+        const to   = document.getElementById('team-view-to')?.value   || '';
+        if (!from || !to) { toast('Set date range', 'error'); return; }
         let count = 0;
-        for (const key of [..._apiCache.keys()]) {
-            if (from && to && key.includes(`fromdate=${from}`) && key.includes(`todate=${to}`)) {
-                _apiCache.delete(key);
-                count++;
-            }
+        for (const k of listDayKeys(new Date(from + 'T00:00:00'), new Date(to + 'T00:00:00'))) {
+            if (_dayStore.delete(k)) count++;
         }
-        toast(count ? `Cache cleared for this week` : 'Nothing cached for this range', count ? 'success' : undefined);
+        if (count) { _todayFresh = false; _ticketTotalsCache.clear(); _dayStorePersist(); }
+        toast(count ? `Cache cleared for this range` : 'Nothing cached for this range', count ? 'success' : undefined);
         loadTeamView();
     }
+
+    const _sleep = ms => new Promise(r => setTimeout(r, ms));
 
     async function apiGet(path) {
         const url = apiBase() + path;
         const hit = _apiCache.get(url);
         if (hit) return hit.data;
-        const r = await fetch(url, { headers: apiHeaders() });
+        // Retry on 429 with exponential backoff (max 3 tries)
+        let r, attempt = 0;
+        while (true) {
+            r = await fetch(url, { headers: apiHeaders() });
+            if (r.status !== 429 || attempt >= 2) break;
+            const retryAfter = parseInt(r.headers.get('retry-after') || '0', 10);
+            const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(8000, 1000 * Math.pow(2, attempt));
+            await _sleep(waitMs);
+            attempt++;
+        }
         if (!r.ok) throw new Error(`${r.status}`);
         const data = await r.json();
         _apiCache.set(url, { data });
@@ -1761,7 +2232,7 @@
     }
 
     async function apiPost(path, body) {
-        apiCacheInvalidate();
+        _invalidateForWrite();
         const r = await fetch(apiBase() + path, {
             method: 'POST', headers: apiHeaders(), body: JSON.stringify(body)
         });
@@ -1770,7 +2241,7 @@
     }
 
     async function apiPut(path, body) {
-        apiCacheInvalidate();
+        _invalidateForWrite();
         const r = await fetch(apiBase() + path, {
             method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body)
         });
@@ -1779,7 +2250,7 @@
     }
 
     async function apiDelete(path) {
-        apiCacheInvalidate();
+        _invalidateForWrite();
         const r = await fetch(apiBase() + path, {
             method: 'DELETE', headers: apiHeaders()
         });
@@ -2039,60 +2510,40 @@
         document.getElementById('week-range').textContent = `${fmt(weekStart)} — ${fmt(end)}`;
     }
 
-    // ─── Load entire week (one fetch per day, same logic as reloadDay) ──────────
+    // ─── Load entire week (single range fetch via the unified store) ────────────
     async function loadWeekData() {
         updateWeekRange();
         renderWeekSkeleton();
         weekEntries = {};
 
-        const uf = config.userId ? `&userId=${config.userId}` : '';
-        const fetches = [];
+        const wkEnd = new Date(weekStart); wkEnd.setDate(wkEnd.getDate() + 6);
+        try {
+            await ensureRange(weekStart, wkEnd); // one fetch (or 0 if cached) for the whole week
+        } catch (e) { console.warn('[TW] week load failed', e); }
 
         for (let i = 0; i < 7; i++) {
-            const d = new Date(weekStart);
-            d.setDate(d.getDate() + i);
-            const key = toDayKey(d);
-            const url = `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`;
-            fetches.push(
-                apiGet(url)
-                    .then(data => {
-                        weekEntries[key] = data['time-entries'] || data['timeEntries'] || [];
-                    })
-                    .catch(e => {
-                        console.warn('[TW] failed to load', key, e);
-                        weekEntries[key] = [];
-                    })
-            );
+            const d = new Date(weekStart); d.setDate(d.getDate() + i);
+            weekEntries[toDayKey(d)] = myDayEntries(toDayKey(d));
         }
-
-        try {
-            await Promise.all(fetches);
-        } catch (e) { /* individual errors already handled above */ }
 
         renderWeekDays();
         updateWeekTotal();
         Object.keys(weekEntries).forEach(key => silentFixTimes(key));
-        loadLastWeekData();   // fetch previous week quietly for day comparison
+        loadLastWeekData();   // previous week for day-vs-day comparison badges
     }
 
-    // Fetch previous week's totals for day-vs-day comparison badges
+    // Previous week — for day-vs-day comparison badges (read from store)
     async function loadLastWeekData() {
-        const prevStart = new Date(weekStart);
-        prevStart.setDate(prevStart.getDate() - 7);
+        const prevStart = new Date(weekStart); prevStart.setDate(prevStart.getDate() - 7);
+        const prevEnd   = new Date(prevStart); prevEnd.setDate(prevEnd.getDate() + 6);
         lastWeekEntries = {};
-        const uf = config.userId ? `&userId=${config.userId}` : '';
-        const fetches = [];
+        try {
+            await ensureRange(prevStart, prevEnd);
+        } catch (_) { /* comparison is best-effort */ }
         for (let i = 0; i < 7; i++) {
             const d = new Date(prevStart); d.setDate(d.getDate() + i);
-            const key = toDayKey(d);
-            const url = `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`;
-            fetches.push(
-                apiGet(url)
-                    .then(data => { lastWeekEntries[key] = data['time-entries'] || data['timeEntries'] || []; })
-                    .catch(() => { lastWeekEntries[key] = []; })
-            );
+            lastWeekEntries[toDayKey(d)] = myDayEntries(toDayKey(d));
         }
-        await Promise.all(fetches).catch(() => {});
         updateDayVsBadges();
     }
 
@@ -2217,6 +2668,9 @@
                 entriesEl.innerHTML = buildGroupedEntries(entries);
             }
         }
+        // Defer bulk team-totals fetch to avoid 429 rate limit on top of week-load burst
+        clearTimeout(window._badgeRefreshTimer);
+        window._badgeRefreshTimer = setTimeout(refreshTicketBadges, 1200);
     }
 
     function buildGroupedEntries(entries) {
@@ -2291,6 +2745,9 @@
             `<option value="${p.id}"${String(p.id)===String(entryProjId)?' selected':''}>${esc(p.name)}</option>`
         ).join('');
 
+        const _ticketId = extractTicketFromText(e.description || '');
+        const _estBadge = _ticketId ? `<div class="ticket-est-wrap">${renderEstimateBadge(_ticketId)}</div>` : '';
+
         return `<div class="entry-row" id="er-${e.id}" style="cursor:pointer;" onclick="openEditRow('${e.id}',${h},${m},'${desc.replace(/'/g,"\\'")}','${entryProjId}','${entryTaskId}')">
             <div class="entry-info">
                 ${timeRange}
@@ -2299,6 +2756,7 @@
                     ? `<div class="entry-desc">${desc}</div>`
                     : (!breadcrumb ? `<div class="entry-no-task">No description</div>` : '')
                 }
+                ${_estBadge}
             </div>
             <div class="entry-hours">${h}:${String(m).padStart(2,'0')}</div>
             <div class="entry-actions">
@@ -2655,6 +3113,13 @@
     }
 
     // ─── Log via left form ────────────────────────────────────────────────────
+    // Warn when an entry containing the same ticket ID already exists that day
+    function hasDuplicateTicket(dayKey, desc) {
+        const m = (desc || '').toUpperCase().match(/[A-Z][A-Z0-9]+-\d+/);
+        if (!m) return false;
+        return (weekEntries[dayKey] || []).some(e => (e.description || '').toUpperCase().includes(m[0]));
+    }
+
     async function logTime() {
         const projectId = document.getElementById('project-select').value;
         const taskId    = document.getElementById('task-select').value;
@@ -2665,6 +3130,8 @@
 
         if (!projectId) { toast('Select a project', 'error'); return; }
         if (hours === 0 && minutes === 0) { toast('Enter time', 'error'); return; }
+        if (hasDuplicateTicket(toDayKey(targetDate), desc) &&
+            !confirm('An entry with this ticket ID already exists on this day. Log anyway?')) return;
 
         const btn = document.getElementById('log-btn');
         btn.disabled = true;
@@ -2708,27 +3175,20 @@
     // ─── Reload a single day ──────────────────────────────────────────────────
     async function reloadDay(key) {
         const block = document.querySelector(`.day-block[data-key="${key}"]`);
-        if (!block) return;
-        block.classList.add('loading');
+        if (block) block.classList.add('loading');
 
-        const parts = key.split('-');
-        const d = new Date(+parts[0], +parts[1]-1, +parts[2]);
-        const uf = config.userId ? `&userId=${config.userId}` : '';
-
-        const dayUrl = `/time_entries.json?fromdate=${toApiDate(d)}&todate=${toApiDate(d)}&pageSize=100${uf}`;
-        console.log('[TW] reloadDay url:', dayUrl);
+        _evictDay(key);                 // drop stale bucket so ensureRange refetches it
+        const d = _dayKeyToDate(key);
         try {
-            const data = await apiGet(dayUrl);
-            const dayEntries = data['time-entries'] || data['timeEntries'] || [];
-            console.log('[TW] reloadDay', key, '| response keys:', Object.keys(data), '| entries:', dayEntries.length);
-            weekEntries[key] = dayEntries;
+            await ensureRange(d, d);     // refetch just this one day (all-team)
+            weekEntries[key] = myDayEntries(key);
             renderWeekDays();
             updateWeekTotal();
             silentFixTimes(key);
         } catch (e) {
             toast('Could not refresh entries: ' + e.message, 'error');
         } finally {
-            block.classList.remove('loading');
+            if (block) block.classList.remove('loading');
         }
     }
 
@@ -2999,6 +3459,7 @@
                     <a href="#" onclick="event.preventDefault();document.getElementById('linear-override-row').style.display='flex';this.style.display='none';"
                         style="font-size:10px;color:var(--text-dimmer);text-decoration:underline;white-space:nowrap;">Change →</a>
                 </div>
+                <div class="ticket-est-wrap" style="margin-top:6px;">${renderEstimateBadge(ticketId)}</div>
                 <div id="linear-override-row" style="display:none;gap:5px;align-items:center;margin-top:5px;">
                     <select id="linear-map-select" style="flex:1;font-size:11px;padding:3px 5px;">
                         <option value="">— choose task —</option>${opts}
@@ -3006,6 +3467,7 @@
                     <button onclick="saveLinearPrefixMapping('${esc(ticketId)}')"
                         style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">Save</button>
                 </div>`;
+            refreshTicketBadges();
         } else {
             // No saved mapping & no prefix match — ask user to pick and save one
             const prefix = ticketId.split('-')[0].toUpperCase();
@@ -3032,7 +3494,9 @@
                     </select>
                     <button onclick="saveLinearPrefixMapping('${esc(ticketId)}')"
                         style="font-size:11px;padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;cursor:pointer;white-space:nowrap;">Save</button>
-                </div>`;
+                </div>
+                <div class="ticket-est-wrap" style="margin-top:6px;">${renderEstimateBadge(ticketId)}</div>`;
+            refreshTicketBadges();
         }
     }
 
@@ -3069,6 +3533,9 @@
         const logDate    = new Date(dateVal + 'T00:00:00');
         const dayKey     = toDayKey(logDate);
         const apiDateStr = toApiDate(logDate);
+
+        if (hasDuplicateTicket(dayKey, ticketId) &&
+            !confirm(`${ticketId} is already logged on this day. Log anyway?`)) return;
 
         try {
             await apiPost(`/tasks/${task.id}/time_entries.json`, {
@@ -3191,6 +3658,8 @@
         document.getElementById('rule-project-filter').value   = rules.quickProjectFilter;
         document.getElementById('rule-days-collapsed').checked  = !!rules.daysCollapsedByDefault;
         document.getElementById('rule-ui-font-size').value     = rules.uiFontSize ?? 12;
+        document.getElementById('rule-ticket-total-months').value = String(rules.ticketTotalMonths ?? 3);
+        document.getElementById('rule-linear-workspace').value     = rules.linearWorkspace || 'a8c';
         renderGroupsUI();
         renderGoalsUI();
         renderPrefixMapSection();
@@ -3358,6 +3827,13 @@
         rules.quickProjectFilter      = document.getElementById('rule-project-filter').value.trim();
         rules.daysCollapsedByDefault  = document.getElementById('rule-days-collapsed').checked;
         rules.uiFontSize              = Math.min(20, Math.max(9, parseInt(document.getElementById('rule-ui-font-size').value) || 12));
+        const _prevTtm = rules.ticketTotalMonths;
+        rules.ticketTotalMonths       = parseInt(document.getElementById('rule-ticket-total-months').value);
+        if (isNaN(rules.ticketTotalMonths)) rules.ticketTotalMonths = 3;
+        if (_prevTtm !== rules.ticketTotalMonths) {
+            _ticketTotalsCache.clear(); // window changed → recompute totals from store
+        }
+        rules.linearWorkspace         = (document.getElementById('rule-linear-workspace').value || 'a8c').trim().replace(/^\/+|\/+$/g, '');
 
         // Read groups from the dynamic rows
         const groupRows = document.querySelectorAll('#qt-groups-rows .qt-group-row');
@@ -3611,6 +4087,36 @@
         }
     }
 
+    // ─── Copy as Standup ──────────────────────────────────────────────────────
+    function copyStandup() {
+        const today = new Date();
+        const tKey  = toDayKey(today);
+
+        // previous working day (skips weekends)
+        const y = new Date(today);
+        do { y.setDate(y.getDate() - 1); } while (y.getDay() === 0 || y.getDay() === 6);
+        const yKey = toDayKey(y);
+
+        // yesterday may fall in the previous week (Monday → last Friday)
+        const yEntries = weekEntries[yKey] || lastWeekEntries[yKey] || [];
+        const tEntries = weekEntries[tKey] || [];
+
+        const line = e => {
+            const desc = (e.description || e['todo-item-name'] || 'Work').trim();
+            return `• ${desc} (${fmtMins(entryMins(e))})`;
+        };
+
+        const yLabel = y.toLocaleDateString('en-US', { weekday: 'long' });
+        let text = `*Yesterday (${yLabel}):*\n`;
+        text += yEntries.length ? yEntries.map(line).join('\n') : '• —';
+        text += `\n\n*Today:*\n`;
+        text += tEntries.length ? tEntries.map(line).join('\n') : '• —';
+
+        navigator.clipboard?.writeText(text)
+            .then(() => toast('Standup copied!', 'success'))
+            .catch(() => toast('Copy failed', 'error'));
+    }
+
     // ─── Midnight day-change detection ────────────────────────────────────────
     function checkDayChange() {
         if (toDayKey(new Date()) !== launchDateKey) {
@@ -3687,6 +4193,7 @@
             closeTicketLookup();
             closeDaySummary();
             closeSettings();
+            closeEstimatePicker();
         }
 
         // Global shortcuts — only when not typing in an input
@@ -3816,6 +4323,8 @@
         quickProjectFilter:      '',
         daysCollapsedByDefault:  false,
         uiFontSize:              12,
+        ticketTotalMonths:       3,
+        linearWorkspace:         'a8c',
         quickTaskGroups: [
             { keyword: 'Back End Engineering', label: 'Back End' },
             { keyword: 'Internal Meeting',     label: 'Meetings'  },
@@ -4316,6 +4825,34 @@
     function openTicketLookup() {
         document.getElementById('ticket-lookup-overlay').classList.add('open');
         document.getElementById('ticket-lookup-input').focus();
+        renderRecentTickets();
+    }
+
+    function getRecentTickets() {
+        try { return JSON.parse(localStorage.getItem('tw_recent_tickets') || '[]'); }
+        catch (_) { return []; }
+    }
+
+    function saveRecentTicket(id) {
+        const list = getRecentTickets().filter(t => t !== id);
+        list.unshift(id);
+        localStorage.setItem('tw_recent_tickets', JSON.stringify(list.slice(0, 8)));
+    }
+
+    function searchRecentTicket(id) {
+        document.getElementById('ticket-lookup-input').value = id;
+        searchTicketEntries();
+    }
+
+    function renderRecentTickets() {
+        const el = document.getElementById('ticket-lookup-recent');
+        const list = getRecentTickets();
+        if (!list.length) { el.style.display = 'none'; return; }
+        el.style.display = 'flex';
+        el.innerHTML = '<span style="font-size:11px;color:var(--text-dimmer);font-weight:600;">Recent:</span>' +
+            list.map(t => `<button onclick="searchRecentTicket('${esc(t).replace(/'/g, '')}')"
+                style="padding:3px 12px;font-size:11px;font-weight:700;border-radius:20px;border:1.5px solid var(--border);cursor:pointer;
+                       background:var(--surface-2);color:var(--text-dim);transition:all 0.15s;">${esc(t)}</button>`).join('');
     }
 
     function closeTicketLookup() {
@@ -4446,6 +4983,12 @@
                 : `<span style="font-size:12px;color:var(--text);">${esc(rawDesc)}</span>`)
             : '';
 
+        const ticketIds = [];
+        { const re = /\b([A-Z][A-Z0-9]+-\d+)\b/gi; let m; while ((m = re.exec(rawDesc)) !== null) ticketIds.push(m[1].toUpperCase()); }
+        const badgesHtml = ticketIds.length
+            ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">${ticketIds.map(renderEstimateBadgeTV).join('')}</div>`
+            : '';
+
         const t         = e.time || e['start-time'] || '';
         const startDisp = tvFmtTime(t);
         const startM    = t ? timeStrToMins(t) : null;
@@ -4456,7 +4999,7 @@
 
         if (_teamViewGrouped) {
             return `<div style="${rowStyle}">
-                <div>${descHtml}${descHtml && descBody ? '<br>' : ''}${descBody}</div>
+                <div>${descHtml}${descHtml && descBody ? '<br>' : ''}${descBody}${badgesHtml}</div>
                 <span style="color:var(--text-dim);font-size:11px;">${taskList}</span>
                 <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${startDisp}</span>
                 <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${endStr}</span>
@@ -4469,7 +5012,7 @@
                     ${personAvatar(e)}
                     <span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${firstName}</span>
                 </div>
-                <div>${descHtml}${descHtml && descBody ? '<br>' : ''}${descBody}</div>
+                <div>${descHtml}${descHtml && descBody ? '<br>' : ''}${descBody}${badgesHtml}</div>
                 <span style="color:var(--text-dim);font-size:11px;">${taskList}</span>
                 <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${startDisp}</span>
                 <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;">${endStr}</span>
@@ -4524,6 +5067,7 @@
 
         body.innerHTML = `<div style="padding:0 2px;">${html}</div>`;
         totalEl.textContent = `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · Total: ${fmtMins(totalRef.v)}`;
+        refreshTicketBadges();
     }
 
     function renderTeamViewFilters() {
@@ -4544,13 +5088,28 @@
                        color:${_teamViewGrouped ? '#fff' : 'var(--text-dim)'};">By Person</button>
         </div>`;
 
-        // person filter chips
+        // per-person totals for the loaded range
+        const personMins = {};
+        _teamViewEntries.forEach(e => {
+            const k = personKey(e);
+            personMins[k] = (personMins[k] || 0) + entryMins(e);
+        });
+        const weekTargetMins = (rules.dailyTargetHours || 8) * 5 * 60;
+
+        // person filter chips (with range total; amber when below weekly target)
         const chips = ['All', ...people].map(name => {
             const active = name === _teamViewFilter;
+            let totalHtml = '';
+            if (name !== 'All') {
+                const mins  = personMins[name] || 0;
+                const below = mins < weekTargetMins;
+                const col   = active ? 'rgba(255,255,255,0.85)' : (below ? '#d97706' : '#059669');
+                totalHtml = ` <span style="font-weight:600;color:${col};">· ${fmtMins(mins)}</span>`;
+            }
             return `<button onclick="applyTeamViewFilter('${name.replace(/'/g,"\\'")}')"
                 style="padding:3px 12px;font-size:11px;font-weight:700;border-radius:20px;border:1.5px solid var(--border);cursor:pointer;
                        background:${active ? 'var(--accent)' : 'var(--surface-2)'};
-                       color:${active ? '#fff' : 'var(--text-dim)'};transition:all 0.15s;">${esc(name)}</button>`;
+                       color:${active ? '#fff' : 'var(--text-dim)'};transition:all 0.15s;">${esc(name)}${totalHtml}</button>`;
         }).join('');
 
         filtersEl.style.display = 'flex';
@@ -4608,17 +5167,12 @@
 
         const ALLOWED_FIRST = ['dharmesh', 'sumit', 'pete', 'vikram', 'sid', 'pushpak', 'mukesh', 'faisal'];
 
-        const fromApi = from.replace(/-/g, '');
-        const toApi   = to.replace(/-/g, '');
-        let allEntries = [], page = 1;
+        const fromD = new Date(from + 'T00:00:00');
+        const toD   = new Date(to   + 'T00:00:00');
+        let allEntries = [];
         try {
-            while (true) {
-                const data    = await apiGet(`/time_entries.json?fromdate=${fromApi}&todate=${toApi}&pageSize=500&page=${page}`);
-                const entries = data['time-entries'] || data['timeEntries'] || [];
-                allEntries    = allEntries.concat(entries);
-                if (entries.length < 500) break;
-                page++;
-            }
+            await ensureRange(fromD, toD);
+            allEntries = storeEntries(fromD, toD);
         } catch (e) {
             body.innerHTML = `<div class="preview-empty" style="color:var(--danger);">Failed to load: ${esc(e.message)}</div>`;
             return;
@@ -4666,16 +5220,22 @@
 
         if (!ticketId) { toast('Enter a ticket ID or URL', 'error'); return; }
 
+        saveRecentTicket(ticketId);
+        renderRecentTickets();
+
         const allUsers  = document.getElementById('ticket-lookup-all-users')?.checked;
         const rangeMonths = allUsers ? parseInt(document.getElementById('ticket-lookup-range')?.value || '1') : 0;
 
-        // build date filter
-        let dateFilter = '';
-        if (allUsers && rangeMonths > 0) {
-            const to   = new Date();
-            const from = new Date();
-            from.setMonth(from.getMonth() - rangeMonths);
-            dateFilter = `&fromdate=${toApiDate(from)}&todate=${toApiDate(to)}`;
+        // Determine the lookback window (Date range) to load into the store.
+        const toD   = new Date();
+        const fromD = new Date();
+        if (allUsers && rangeMonths === 0) {
+            fromD.setFullYear(fromD.getFullYear() - 5);        // "all time" capped at 5y
+        } else if (allUsers && rangeMonths > 0) {
+            fromD.setMonth(fromD.getMonth() - rangeMonths);
+        } else {
+            const mo = parseInt(rules.ticketTotalMonths ?? 3) || 3; // own entries → badge window
+            fromD.setMonth(fromD.getMonth() - mo);
         }
 
         const rangeLabel = allUsers
@@ -4685,23 +5245,20 @@
         totalEl.textContent = '';
         document.getElementById('ticket-lookup-filters').style.display = 'none';
 
-        const uf = (!allUsers && config.userId) ? `&userId=${config.userId}` : '';
-        let allEntries = [], page = 1;
+        let pool = [];
         try {
-            while (true) {
-                const data    = await apiGet(`/time_entries.json?pageSize=500&page=${page}${uf}${dateFilter}`);
-                const entries = data['time-entries'] || data['timeEntries'] || [];
-                allEntries    = allEntries.concat(entries);
-                if (entries.length < 500) break;
-                page++;
-            }
+            await ensureRange(fromD, toD);
+            pool = storeEntries(fromD, toD);
         } catch (e) {
             body.innerHTML = `<div class="preview-empty" style="color:var(--danger);">Failed to load: ${esc(e.message)}</div>`;
             return;
         }
+        if (!allUsers && config.userId) {
+            pool = pool.filter(e => String(e['person-id']) === String(config.userId));
+        }
 
         const needle  = ticketId.toUpperCase();
-        const matched = allEntries.filter(e => (e.description || '').toUpperCase().includes(needle));
+        const matched = pool.filter(e => (e.description || '').toUpperCase().includes(needle));
 
         if (!matched.length) {
             body.innerHTML = `<div class="preview-empty">No entries found for <strong>${esc(ticketId)}</strong> in ${rangeLabel}.<br><button class="btn btn-ghost" style="margin-top:10px;font-size:12px;" onclick="apiCacheInvalidate();searchTicketEntries();">🗑 Clear Cache &amp; Retry</button></div>`;
@@ -4715,7 +5272,7 @@
         _tlEntries  = matched;
         _tlAllUsers = allUsers;
         _tlFilter   = 'All';
-        _tlGrouped  = false;
+        _tlGrouped  = allUsers;
         renderTicketLookupFilters();
         renderTicketLookupEntries(matched);
     }
@@ -4823,7 +5380,10 @@
             body.innerHTML = `<div style="padding:0 2px;">${rows}</div>`;
         }
 
-        totalEl.textContent = `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · Total: ${fmtMins(totalMins)}`;
+        const _tlRaw = document.getElementById('ticket-lookup-input').value.trim();
+        const _tlKey = extractLinearId(_tlRaw) || _tlRaw.toUpperCase();
+        const linearLink = _tlKey ? ` · <a href="${linearTicketUrl(_tlKey)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-weight:600;" onclick="event.stopPropagation();">↗ Open in Linear</a>` : '';
+        totalEl.innerHTML = `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · Total: ${fmtMins(totalMins)}${linearLink}`;
     }
 
     function setReportMode(mode) {
@@ -4880,19 +5440,18 @@
         totalLine.textContent = '';
         _lastReportData = null;
 
-        const uf = config.userId ? `&userId=${config.userId}` : '';
-        let allEntries = [], page = 1;
+        const fromD = new Date(+fromDate.slice(0,4), +fromDate.slice(4,6) - 1, +fromDate.slice(6,8));
+        const toD   = new Date(+toDate.slice(0,4),   +toDate.slice(4,6) - 1,   +toDate.slice(6,8));
+        let allEntries = [];
         try {
-            while (true) {
-                const data    = await apiGet(`/time_entries.json?fromdate=${fromDate}&todate=${toDate}&pageSize=500&page=${page}${uf}`);
-                const entries = data['time-entries'] || data['timeEntries'] || [];
-                allEntries    = allEntries.concat(entries);
-                if (entries.length < 500) break;
-                page++;
-            }
+            await ensureRange(fromD, toD);
+            allEntries = storeEntries(fromD, toD);
         } catch (e) {
             body.innerHTML = `<div class="preview-empty" style="color:var(--danger);">Failed to load: ${esc(e.message)}</div>`;
             return;
+        }
+        if (config.userId) {
+            allEntries = allEntries.filter(e => String(e['person-id']) === String(config.userId));
         }
 
         renderMonthReport(allEntries, label);
