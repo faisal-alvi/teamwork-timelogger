@@ -1846,7 +1846,11 @@
     // client-side filter of this store, so an in-window range needs zero refetch.
     const _dayStore     = new Map();          // 'YYYY-MM-DD' → entry[] (all team)
     const _DAYSTORE_KEY = 'tw_daystore_v1';
-    let   _todayFresh   = false;              // has today's bucket been fetched this session?
+    // Day keys network-confirmed THIS session. A persisted/cached day is shown
+    // instantly but is NOT trusted as final until revalidated once per session —
+    // entries are logged retroactively for past dates (back-logging, edits from
+    // the Teamwork site or another device), so "past = immutable" is false.
+    const _dayFresh     = new Set();
 
     function _todayKey() { return toDayKey(new Date()); }
 
@@ -1887,12 +1891,16 @@
         return keys;
     }
 
-    // Bucket a flat entry array by day, replacing those day buckets wholesale.
-    function _ingest(entries) {
+    // Bucket a flat entry array by day. The fetched range is authoritative, so
+    // every day in [from,to] is reset to exactly what the API returned (empty
+    // array if nothing) — this correctly reflects deletions and edits, not just
+    // additions, on revalidation.
+    function _ingestRange(entries, fromDate, toDate) {
         const byDay = {};
+        for (const k of listDayKeys(fromDate, toDate)) byDay[k] = []; // seed full range
         for (const e of entries) {
             const k = entryDateKey(e);
-            (byDay[k] = byDay[k] || []).push(e);
+            (byDay[k] = byDay[k] || []).push(e); // entry may fall on a boundary day
         }
         for (const k in byDay) _dayStore.set(k, byDay[k]);
     }
@@ -1910,25 +1918,24 @@
             if (page > 30) break;
             await _sleep(250); // throttle to avoid 429
         }
-        _ingest(all);
-        // Mark every day in range with no returned entries as loaded-empty → no refetch.
-        for (const k of listDayKeys(fromDate, toDate)) {
-            if (!_dayStore.has(k)) _dayStore.set(k, []);
-        }
+        _ingestRange(all, fromDate, toDate);
+        // Mark every day in the fetched range as confirmed-fresh for this session.
+        for (const k of listDayKeys(fromDate, toDate)) _dayFresh.add(k);
         _dayStorePersist();
         _ticketTotalsCache.clear(); // new data invalidates cached ticket totals
         return all;
     }
 
     async function _ensureRangeInner(fromDate, toDate) {
-        const keys    = listDayKeys(fromDate, toDate);
-        const todayK  = _todayKey();
-        const missing = keys.filter(k => !_dayStore.has(k) || (k === todayK && !_todayFresh));
-        if (!missing.length) return;
-        // One paginated range fetch covering all missing days (interior gaps re-fetched harmlessly).
-        const lo = missing[0], hi = missing[missing.length - 1];
+        const keys  = listDayKeys(fromDate, toDate);
+        // Refetch any day not yet network-confirmed this session — covers cold
+        // store AND persisted/hydrated days that may have changed since last load.
+        const stale = keys.filter(k => !_dayFresh.has(k));
+        if (!stale.length) return;
+        // One paginated range fetch covering the stale span (already-fresh interior
+        // days get re-validated harmlessly).
+        const lo = stale[0], hi = stale[stale.length - 1];
         await _fetchRangeIntoStore(_dayKeyToDate(lo), _dayKeyToDate(hi));
-        if (keys.includes(todayK)) _todayFresh = true;
     }
 
     // Serialize all range fetches so concurrent loaders (week + last-week + badges)
@@ -1960,25 +1967,26 @@
     // Evict one day so the next read refetches it (used after writes to that day).
     function _evictDay(dayKey) {
         _dayStore.delete(dayKey);
-        if (dayKey === _todayKey()) _todayFresh = false;
+        _dayFresh.delete(dayKey);   // force re-validation on next read
         _ticketTotalsCache.clear();
         _dayStorePersist();
     }
 
-    // Light invalidation after a write: drop transient URL cache + ticket totals,
-    // force today to refetch. The affected day is evicted explicitly via reloadDay.
+    // Light invalidation after a write: drop transient URL cache + ticket totals.
+    // The affected day is evicted explicitly via reloadDay; clearing today's
+    // freshness covers writes that don't go through reloadDay.
     function _invalidateForWrite() {
         _apiCache.clear();
         _ticketTotalsCache.clear();
-        _todayFresh = false;
+        _dayFresh.delete(_todayKey());
     }
 
     // Full nuke — used by the "Clear Cache" button and on settings change.
     function apiCacheInvalidate() {
         _apiCache.clear();
         _dayStore.clear();
+        _dayFresh.clear();
         localStorage.removeItem(_DAYSTORE_KEY);
-        _todayFresh = false;
         _ticketTotalsCache.clear();
     }
 
@@ -2202,9 +2210,10 @@
         if (!from || !to) { toast('Set date range', 'error'); return; }
         let count = 0;
         for (const k of listDayKeys(new Date(from + 'T00:00:00'), new Date(to + 'T00:00:00'))) {
+            _dayFresh.delete(k);            // force re-validation
             if (_dayStore.delete(k)) count++;
         }
-        if (count) { _todayFresh = false; _ticketTotalsCache.clear(); _dayStorePersist(); }
+        if (count) { _ticketTotalsCache.clear(); _dayStorePersist(); }
         toast(count ? `Cache cleared for this range` : 'Nothing cached for this range', count ? 'success' : undefined);
         loadTeamView();
     }
@@ -2513,21 +2522,30 @@
     // ─── Load entire week (single range fetch via the unified store) ────────────
     async function loadWeekData() {
         updateWeekRange();
-        renderWeekSkeleton();
         weekEntries = {};
 
         const wkEnd = new Date(weekStart); wkEnd.setDate(wkEnd.getDate() + 6);
+
+        const paintFromStore = () => {
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(weekStart); d.setDate(d.getDate() + i);
+                weekEntries[toDayKey(d)] = myDayEntries(toDayKey(d));
+            }
+            renderWeekDays();
+            updateWeekTotal();
+        };
+
+        // Stale-while-revalidate: paint cached data instantly if we have any for
+        // this week, otherwise show the skeleton while the first fetch runs.
+        const hasCached = listDayKeys(weekStart, wkEnd).some(k => _dayStore.has(k));
+        if (hasCached) paintFromStore();
+        else           renderWeekSkeleton();
+
         try {
-            await ensureRange(weekStart, wkEnd); // one fetch (or 0 if cached) for the whole week
+            await ensureRange(weekStart, wkEnd); // revalidate (0 net if already fresh this session)
         } catch (e) { console.warn('[TW] week load failed', e); }
 
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(weekStart); d.setDate(d.getDate() + i);
-            weekEntries[toDayKey(d)] = myDayEntries(toDayKey(d));
-        }
-
-        renderWeekDays();
-        updateWeekTotal();
+        paintFromStore(); // repaint with freshly validated data
         Object.keys(weekEntries).forEach(key => silentFixTimes(key));
         loadLastWeekData();   // previous week for day-vs-day comparison badges
     }
