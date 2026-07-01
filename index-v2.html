@@ -1933,17 +1933,23 @@
     async function _fetchRangeIntoStore(fromDate, toDate) {
         const fromApi = toApiDate(fromDate);
         const toApi   = toApiDate(toDate);
-        let all = [], page = 1, complete = true;
-        while (true) {
+        // Paginate until a page comes back EMPTY (truly exhausted). Do NOT infer the
+        // last page from "< pageSize" — Teamwork caps/defaults pageSize on many
+        // accounts, so a short first page is not the end; assuming so made the fetch
+        // look complete and authoritatively wiped days whose entries were on later
+        // pages. Only an exhausted fetch is authoritative.
+        let all = [], page = 1, complete = false;
+        const MAX_PAGES = 60;
+        while (page <= MAX_PAGES) {
             const data    = await apiGet(`/time_entries.json?fromdate=${fromApi}&todate=${toApi}&pageSize=500&page=${page}`);
             const entries = data['time-entries'] || data['timeEntries'] || [];
+            if (entries.length === 0) { complete = true; break; } // no more rows → exhausted
             all = all.concat(entries);
-            if (entries.length < 500) break;      // reached the last page → complete
             page++;
-            if (page > 30) { complete = false; break; } // hit cap → data is truncated
-            await _sleep(250); // throttle to avoid 429
+            await _sleep(150); // throttle to avoid 429
         }
-        // NOTE: a mid-pagination network/429 error throws out of apiGet before we get
+        // complete stays false only if we hit MAX_PAGES → treat as truncated (additive,
+        // never wipes). A mid-pagination network/429 error throws out of apiGet before
         // here, so the store is never overwritten with a partial result on error.
         _ingestRange(all, fromDate, toDate, complete);
         // Stamp every day in the fetched range with the confirmation time.
