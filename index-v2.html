@@ -1846,11 +1846,29 @@
     // client-side filter of this store, so an in-window range needs zero refetch.
     const _dayStore     = new Map();          // 'YYYY-MM-DD' → entry[] (all team)
     const _DAYSTORE_KEY = 'tw_daystore_v1';
-    // Day keys network-confirmed THIS session. A persisted/cached day is shown
-    // instantly but is NOT trusted as final until revalidated once per session —
-    // entries are logged retroactively for past dates (back-logging, edits from
-    // the Teamwork site or another device), so "past = immutable" is false.
-    const _dayFresh     = new Set();
+    // Day key → timestamp(ms) of last network confirmation. A cached day is shown
+    // instantly but is only TRUSTED for a bounded window, then revalidated — entries
+    // are logged/edited retroactively (back-logging, the Teamwork site, another
+    // device, teammates), so "fetched once = final" is false and caused entries to
+    // silently go missing until a manual cache clear.
+    const _dayFresh     = new Map();
+
+    // Recent days change often (today + back-logging window) → short TTL so a
+    // long-open tab keeps picking up new entries. Older days rarely change → trusted
+    // for the whole session (avoids re-pulling months of history on every read).
+    const _FRESH_RECENT_MS = 3 * 60 * 1000; // 3 min
+    const _FRESH_RECENT_DAYS = 8;
+
+    function _freshTtl(key) {
+        const ageDays = (Date.now() - _dayKeyToDate(key).getTime()) / 86400000;
+        return ageDays <= _FRESH_RECENT_DAYS ? _FRESH_RECENT_MS : Infinity;
+    }
+
+    function _isFresh(key) {
+        const ts = _dayFresh.get(key);
+        if (ts == null) return false;
+        return (Date.now() - ts) < _freshTtl(key);
+    }
 
     function _todayKey() { return toDayKey(new Date()); }
 
@@ -1891,36 +1909,46 @@
         return keys;
     }
 
-    // Bucket a flat entry array by day. The fetched range is authoritative, so
-    // every day in [from,to] is reset to exactly what the API returned (empty
-    // array if nothing) — this correctly reflects deletions and edits, not just
-    // additions, on revalidation.
-    function _ingestRange(entries, fromDate, toDate) {
+    // Bucket a flat entry array by day and write into the store.
+    //   complete=true  → the fetch fully covered [from,to], so it is authoritative:
+    //                    every day is reset to exactly what the API returned (empty
+    //                    array if none), reflecting deletions/edits as well as adds.
+    //   complete=false → the fetch was truncated (pagination cap), so it is NOT
+    //                    authoritative: only replace days we actually received data
+    //                    for. NEVER wipe an unseen day to empty — that is what made
+    //                    entries silently disappear.
+    function _ingestRange(entries, fromDate, toDate, complete) {
         const byDay = {};
-        for (const k of listDayKeys(fromDate, toDate)) byDay[k] = []; // seed full range
         for (const e of entries) {
             const k = entryDateKey(e);
-            (byDay[k] = byDay[k] || []).push(e); // entry may fall on a boundary day
+            (byDay[k] = byDay[k] || []).push(e);
         }
-        for (const k in byDay) _dayStore.set(k, byDay[k]);
+        if (complete) {
+            for (const k of listDayKeys(fromDate, toDate)) _dayStore.set(k, byDay[k] || []);
+        } else {
+            for (const k in byDay) _dayStore.set(k, byDay[k]);
+        }
     }
 
     async function _fetchRangeIntoStore(fromDate, toDate) {
         const fromApi = toApiDate(fromDate);
         const toApi   = toApiDate(toDate);
-        let all = [], page = 1;
+        let all = [], page = 1, complete = true;
         while (true) {
             const data    = await apiGet(`/time_entries.json?fromdate=${fromApi}&todate=${toApi}&pageSize=500&page=${page}`);
             const entries = data['time-entries'] || data['timeEntries'] || [];
             all = all.concat(entries);
-            if (entries.length < 500) break;
+            if (entries.length < 500) break;      // reached the last page → complete
             page++;
-            if (page > 30) break;
+            if (page > 30) { complete = false; break; } // hit cap → data is truncated
             await _sleep(250); // throttle to avoid 429
         }
-        _ingestRange(all, fromDate, toDate);
-        // Mark every day in the fetched range as confirmed-fresh for this session.
-        for (const k of listDayKeys(fromDate, toDate)) _dayFresh.add(k);
+        // NOTE: a mid-pagination network/429 error throws out of apiGet before we get
+        // here, so the store is never overwritten with a partial result on error.
+        _ingestRange(all, fromDate, toDate, complete);
+        // Stamp every day in the fetched range with the confirmation time.
+        const now = Date.now();
+        for (const k of listDayKeys(fromDate, toDate)) _dayFresh.set(k, now);
         _dayStorePersist();
         _ticketTotalsCache.clear(); // new data invalidates cached ticket totals
         return all;
@@ -1928,9 +1956,9 @@
 
     async function _ensureRangeInner(fromDate, toDate) {
         const keys  = listDayKeys(fromDate, toDate);
-        // Refetch any day not yet network-confirmed this session — covers cold
-        // store AND persisted/hydrated days that may have changed since last load.
-        const stale = keys.filter(k => !_dayFresh.has(k));
+        // Refetch any day whose confirmation has expired (or was never confirmed) —
+        // covers cold store, hydrated days, and days that went stale on a long-open tab.
+        const stale = keys.filter(k => !_isFresh(k));
         if (!stale.length) return;
         // One paginated range fetch covering the stale span (already-fresh interior
         // days get re-validated harmlessly).
@@ -2222,8 +2250,14 @@
 
     async function apiGet(path) {
         const url = apiBase() + path;
-        const hit = _apiCache.get(url);
-        if (hit) return hit.data;
+        // Time-entry ranges are cached by the day store (which handles per-session
+        // revalidation). Caching them here too would serve stale/empty responses on
+        // refetch and defeat revalidation. Only cache static-ish data (projects/tasks/me).
+        const cacheable = !url.includes('/time_entries.json');
+        if (cacheable) {
+            const hit = _apiCache.get(url);
+            if (hit) return hit.data;
+        }
         // Retry on 429 with exponential backoff (max 3 tries)
         let r, attempt = 0;
         while (true) {
@@ -2236,7 +2270,7 @@
         }
         if (!r.ok) throw new Error(`${r.status}`);
         const data = await r.json();
-        _apiCache.set(url, { data });
+        if (cacheable) _apiCache.set(url, { data });
         return data;
     }
 
